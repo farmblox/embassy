@@ -24,7 +24,7 @@ use crate::pac::usart::regs::Isr as Sr;
 #[cfg(any(usart_v1, usart_v2))]
 use crate::pac::usart::regs::Sr;
 #[cfg(not(any(usart_v1, usart_v2)))]
-use crate::pac::usart::Lpuart as Regs;
+use crate::pac::usart::Usart as Regs;
 #[cfg(any(usart_v1, usart_v2))]
 use crate::pac::usart::Usart as Regs;
 use crate::pac::usart::{regs, vals};
@@ -550,20 +550,23 @@ impl<'d> UartRx<'d, Async> {
 
     /// Initiate an asynchronous UART read
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
-        self.inner_read(buffer, false).await?;
+        self.inner_read(buffer, false, 0).await?;
 
         Ok(())
     }
 
     /// Initiate an asynchronous read with idle line detection enabled
-    pub async fn read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
-        self.inner_read(buffer, true).await
+    /// The idle line detection timeout is in bit-durations since the last start bit (for a 2-byte holdoff, 
+    /// use (1+2)*11 = 33 bit times; 11 bits for the last byte and 22 bits for the holdoff)
+    pub async fn read_until_idle(&mut self, buffer: &mut [u8], idle_line_rtor: u32) -> Result<usize, Error> {
+        self.inner_read(buffer, true, idle_line_rtor).await
     }
 
     async fn inner_read_run(
         &mut self,
         buffer: &mut [u8],
         enable_idle_line_detection: bool,
+        idle_line_rtor: u32,
     ) -> Result<ReadCompletionEvent, Error> {
         let r = self.info.regs;
 
@@ -666,6 +669,10 @@ impl<'d> UartRx<'d, Async> {
             unsafe { rdr(r).read_volatile() };
             clear_interrupt_flags(r, sr);
 
+            // set receiver timeout reg
+            #[cfg(any(usart_v3, usart_v4))]
+            r.rtor().modify(|w| w.set_rto(idle_line_rtor));
+
             // enable idle interrupt
             r.cr1().modify(|w| {
                 w.set_idleie(true);
@@ -742,7 +749,7 @@ impl<'d> UartRx<'d, Async> {
         r
     }
 
-    async fn inner_read(&mut self, buffer: &mut [u8], enable_idle_line_detection: bool) -> Result<usize, Error> {
+    async fn inner_read(&mut self, buffer: &mut [u8], enable_idle_line_detection: bool, idle_line_rtor: u32) -> Result<usize, Error> {
         if buffer.is_empty() {
             return Ok(0);
         } else if buffer.len() > 0xFFFF {
@@ -752,7 +759,7 @@ impl<'d> UartRx<'d, Async> {
         let buffer_len = buffer.len();
 
         // wait for DMA to complete or IDLE line detection if requested
-        let res = self.inner_read_run(buffer, enable_idle_line_detection).await;
+        let res = self.inner_read_run(buffer, enable_idle_line_detection, idle_line_rtor).await;
 
         match res {
             Ok(ReadCompletionEvent::DmaCompleted) => Ok(buffer_len),
@@ -1107,8 +1114,8 @@ impl<'d> Uart<'d, Async> {
     }
 
     /// Perform an an asynchronous read with idle line detection enabled
-    pub async fn read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
-        self.rx.read_until_idle(buffer).await
+    pub async fn read_until_idle(&mut self, buffer: &mut [u8], idle_line_rtor: u32) -> Result<usize, Error> {
+        self.rx.read_until_idle(buffer, idle_line_rtor).await
     }
 }
 
