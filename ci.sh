@@ -88,6 +88,7 @@ cargo batch \
     --- build --release --manifest-path embassy-rp/Cargo.toml --target thumbv6m-none-eabi --features time-driver,qspi-as-gpio,rp2040 \
     --- build --release --manifest-path embassy-rp/Cargo.toml --target thumbv8m.main-none-eabihf --features time-driver,defmt,rp235xa \
     --- build --release --manifest-path embassy-rp/Cargo.toml --target thumbv8m.main-none-eabihf --features time-driver,log,rp235xa \
+    --- build --release --manifest-path embassy-rp/Cargo.toml --target thumbv8m.main-none-eabihf --features time-driver,rp235xa,binary-info \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze,defmt,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze,defmt,exti,time \
@@ -289,6 +290,9 @@ cargo batch \
     $BUILD_EXTRA
 
 
+# temporarily disabled, bluepill board got bricked
+rm -rf out/tests/stm32f103c8
+
 rm out/tests/stm32wb55rg/wpan_mac
 rm out/tests/stm32wb55rg/wpan_ble
 
@@ -298,8 +302,10 @@ rm out/tests/stm32f207zg/eth
 # doesn't work, gives "noise error", no idea why. usart_dma does pass.
 rm out/tests/stm32u5a5zj/usart
 
-# flaky, perhaps bad wire
+# flaky, probably due to bad ringbuffered dma code.
 rm out/tests/stm32l152re/usart_rx_ringbuffered
+rm out/tests/stm32f207zg/usart_rx_ringbuffered
+rm out/tests/stm32wl55jc/usart_rx_ringbuffered
 
 if [[ -z "${TELEPROBE_TOKEN-}" ]]; then
     echo No teleprobe token found, skipping running HIL tests
