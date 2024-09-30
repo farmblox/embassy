@@ -1582,6 +1582,16 @@ impl<'d, M: Mode> embedded_hal_02::serial::Read<u8> for UartRx<'d, M> {
     }
 }
 
+impl<'d, M: Mode> embedded_hal_02::serial::Write<u8> for UartTx<'d, M> {
+    type Error = Error;
+    fn write(&mut self, buffer: u8) -> Result<(), nb::Error<Self::Error>> {
+        Ok(self.blocking_write(&[buffer])?)
+    }
+    fn flush(&mut self) -> Result<(), nb::Error<Self::Error>> {
+        Ok(self.blocking_flush()?)
+    }
+}
+
 impl<'d, M: Mode> embedded_hal_02::blocking::serial::Write<u8> for UartTx<'d, M> {
     type Error = Error;
     fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
