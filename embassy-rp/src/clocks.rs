@@ -109,7 +109,10 @@ impl ClockConfig {
                 sys_pll: Some(PllConfig {
                     refdiv: 1,
                     fbdiv: 125,
+                    #[cfg(feature = "rp2040")]
                     post_div1: 6,
+                    #[cfg(feature = "_rp235x")]
+                    post_div1: 5,
                     post_div2: 2,
                 }),
                 usb_pll: Some(PllConfig {
@@ -847,6 +850,10 @@ impl<'d, T: GpinPin> Gpin<'d, T> {
         into_ref!(gpin);
 
         gpin.gpio().ctrl().write(|w| w.set_funcsel(0x08));
+        #[cfg(feature = "_rp235x")]
+        gpin.pad_ctrl().write(|w| {
+            w.set_iso(false);
+        });
 
         Gpin {
             gpin: gpin.map_into(),
@@ -861,6 +868,7 @@ impl<'d, T: GpinPin> Gpin<'d, T> {
 
 impl<'d, T: GpinPin> Drop for Gpin<'d, T> {
     fn drop(&mut self) {
+        self.gpin.pad_ctrl().write(|_| {});
         self.gpin
             .gpio()
             .ctrl()
@@ -921,11 +929,15 @@ pub struct Gpout<'d, T: GpoutPin> {
 }
 
 impl<'d, T: GpoutPin> Gpout<'d, T> {
-    /// Create new general purpose cloud output.
+    /// Create new general purpose clock output.
     pub fn new(gpout: impl Peripheral<P = T> + 'd) -> Self {
         into_ref!(gpout);
 
         gpout.gpio().ctrl().write(|w| w.set_funcsel(0x08));
+        #[cfg(feature = "_rp235x")]
+        gpout.pad_ctrl().write(|w| {
+            w.set_iso(false);
+        });
 
         Self { gpout }
     }
@@ -1005,6 +1017,7 @@ impl<'d, T: GpoutPin> Gpout<'d, T> {
 impl<'d, T: GpoutPin> Drop for Gpout<'d, T> {
     fn drop(&mut self) {
         self.disable();
+        self.gpout.pad_ctrl().write(|_| {});
         self.gpout
             .gpio()
             .ctrl()
