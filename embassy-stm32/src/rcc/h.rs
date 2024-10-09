@@ -34,8 +34,10 @@ pub enum VoltageScale {
     Scale2,
     Scale3,
 }
-#[cfg(any(stm32h7rs))]
+#[cfg(stm32h7rs)]
 pub use crate::pac::pwr::vals::Vos as VoltageScale;
+#[cfg(all(stm32h7rs, peri_usb_otg_hs))]
+pub use crate::pac::rcc::vals::{Usbphycsel, Usbrefcksel};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum HseMode {
@@ -111,8 +113,8 @@ pub enum TimerPrescaler {
 impl From<TimerPrescaler> for Timpre {
     fn from(value: TimerPrescaler) -> Self {
         match value {
-            TimerPrescaler::DefaultX2 => Timpre::DEFAULTX2,
-            TimerPrescaler::DefaultX4 => Timpre::DEFAULTX4,
+            TimerPrescaler::DefaultX2 => Timpre::DEFAULT_X2,
+            TimerPrescaler::DefaultX4 => Timpre::DEFAULT_X4,
         }
     }
 }
@@ -557,6 +559,27 @@ pub(crate) unsafe fn init(config: Config) {
 
     let rtc = config.ls.init();
 
+    #[cfg(all(stm32h7rs, peri_usb_otg_hs))]
+    let usb_refck = match config.mux.usbphycsel {
+        Usbphycsel::HSE => hse,
+        Usbphycsel::HSE_DIV_2 => hse.map(|hse_val| hse_val / 2u8),
+        Usbphycsel::PLL3_Q => pll3.q,
+        _ => None,
+    };
+    #[cfg(all(stm32h7rs, peri_usb_otg_hs))]
+    let usb_refck_sel = match usb_refck {
+        Some(clk_val) => match clk_val {
+            Hertz(16_000_000) => Usbrefcksel::MHZ16,
+            Hertz(19_200_000) => Usbrefcksel::MHZ19_2,
+            Hertz(20_000_000) => Usbrefcksel::MHZ20,
+            Hertz(24_000_000) => Usbrefcksel::MHZ24,
+            Hertz(26_000_000) => Usbrefcksel::MHZ26,
+            Hertz(32_000_000) => Usbrefcksel::MHZ32,
+            _ => panic!("cannot select USBPHYC reference clock with source frequency of {} Hz, must be one of 16, 19.2, 20, 24, 26, 32 MHz", clk_val),
+        },
+        None => Usbrefcksel::MHZ24,
+    };
+
     #[cfg(stm32h7)]
     {
         RCC.d1cfgr().modify(|w| {
@@ -592,6 +615,11 @@ pub(crate) unsafe fn init(config: Config) {
             w.set_ppre2(config.apb2_pre);
             w.set_ppre4(config.apb4_pre);
             w.set_ppre5(config.apb5_pre);
+        });
+
+        #[cfg(peri_usb_otg_hs)]
+        RCC.ahbperckselr().modify(|w| {
+            w.set_usbrefcksel(usb_refck_sel);
         });
     }
     #[cfg(stm32h5)]
@@ -698,7 +726,9 @@ pub(crate) unsafe fn init(config: Config) {
         #[cfg(stm32h7rs)]
         clk48mohci: None, // TODO
         #[cfg(stm32h7rs)]
-        usb: None, // TODO
+        hse_div_2: hse.map(|clk| clk / 2u32),
+        #[cfg(stm32h7rs)]
+        usb: Some(Hertz(48_000_000)),
     );
 }
 
@@ -749,7 +779,7 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
         ..=3_999_999 => Pllrge::RANGE2,
         ..=7_999_999 => Pllrge::RANGE4,
         ..=16_000_000 => Pllrge::RANGE8,
-        x => panic!("pll ref_clk out of range: {} mhz", x),
+        x => panic!("pll ref_clk out of range: {} hz", x),
     };
 
     // The smaller range (150 to 420 MHz) must
@@ -758,9 +788,9 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
 
     let vco_clk = ref_clk * config.mul;
     let vco_range = if VCO_RANGE.contains(&vco_clk) {
-        Pllvcosel::MEDIUMVCO
+        Pllvcosel::MEDIUM_VCO
     } else if wide_allowed && VCO_WIDE_RANGE.contains(&vco_clk) {
-        Pllvcosel::WIDEVCO
+        Pllvcosel::WIDE_VCO
     } else {
         panic!("pll vco_clk out of range: {} hz", vco_clk.0)
     };
@@ -769,7 +799,7 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
         if num == 0 {
             // on PLL1, DIVP must be even for most series.
             // The enum value is 1 less than the divider, so check it's odd.
-            #[cfg(not(pwr_h7rm0468))]
+            #[cfg(not(any(pwr_h7rm0468, stm32h7rs)))]
             assert!(div.to_bits() % 2 == 1);
             #[cfg(pwr_h7rm0468)]
             assert!(div.to_bits() % 2 == 1 || div.to_bits() == 0);

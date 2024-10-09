@@ -15,7 +15,7 @@
 //! another message will result in an error being returned.
 
 use core::cell::RefCell;
-use core::future::poll_fn;
+use core::future::{poll_fn, Future};
 use core::marker::PhantomData;
 use core::task::{Context, Poll};
 
@@ -53,7 +53,7 @@ impl<'a, M: RawMutex, T> Channel<'a, M, T> {
             buf: buf.as_mut_ptr(),
             phantom: PhantomData,
             state: Mutex::new(RefCell::new(State {
-                len,
+                capacity: len,
                 front: 0,
                 back: 0,
                 full: false,
@@ -69,6 +69,28 @@ impl<'a, M: RawMutex, T> Channel<'a, M, T> {
     /// [`Receiver::borrow`] respectively.
     pub fn split(&mut self) -> (Sender<'_, M, T>, Receiver<'_, M, T>) {
         (Sender { channel: self }, Receiver { channel: self })
+    }
+
+    /// Clears all elements in the channel.
+    pub fn clear(&mut self) {
+        self.state.lock(|s| {
+            s.borrow_mut().clear();
+        });
+    }
+
+    /// Returns the number of elements currently in the channel.
+    pub fn len(&self) -> usize {
+        self.state.lock(|s| s.borrow().len())
+    }
+
+    /// Returns whether the channel is empty.
+    pub fn is_empty(&self) -> bool {
+        self.state.lock(|s| s.borrow().is_empty())
+    }
+
+    /// Returns whether the channel is full.
+    pub fn is_full(&self) -> bool {
+        self.state.lock(|s| s.borrow().is_full())
     }
 }
 
@@ -109,12 +131,15 @@ impl<'a, M: RawMutex, T> Sender<'a, M, T> {
     }
 
     /// Asynchronously send a value over the channel.
-    pub async fn send(&mut self) -> &mut T {
-        let i = poll_fn(|cx| {
+    pub fn send(&mut self) -> impl Future<Output = &mut T> {
+        poll_fn(|cx| {
             self.channel.state.lock(|s| {
                 let s = &mut *s.borrow_mut();
                 match s.push_index() {
-                    Some(i) => Poll::Ready(i),
+                    Some(i) => {
+                        let r = unsafe { &mut *self.channel.buf.add(i) };
+                        Poll::Ready(r)
+                    }
                     None => {
                         s.receive_waker.register(cx.waker());
                         Poll::Pending
@@ -122,13 +147,33 @@ impl<'a, M: RawMutex, T> Sender<'a, M, T> {
                 }
             })
         })
-        .await;
-        unsafe { &mut *self.channel.buf.add(i) }
     }
 
     /// Notify the channel that the sending of the value has been finalized.
     pub fn send_done(&mut self) {
         self.channel.state.lock(|s| s.borrow_mut().push_done())
+    }
+
+    /// Clears all elements in the channel.
+    pub fn clear(&mut self) {
+        self.channel.state.lock(|s| {
+            s.borrow_mut().clear();
+        });
+    }
+
+    /// Returns the number of elements currently in the channel.
+    pub fn len(&self) -> usize {
+        self.channel.state.lock(|s| s.borrow().len())
+    }
+
+    /// Returns whether the channel is empty.
+    pub fn is_empty(&self) -> bool {
+        self.channel.state.lock(|s| s.borrow().is_empty())
+    }
+
+    /// Returns whether the channel is full.
+    pub fn is_full(&self) -> bool {
+        self.channel.state.lock(|s| s.borrow().is_full())
     }
 }
 
@@ -169,12 +214,15 @@ impl<'a, M: RawMutex, T> Receiver<'a, M, T> {
     }
 
     /// Asynchronously receive a value over the channel.
-    pub async fn receive(&mut self) -> &mut T {
-        let i = poll_fn(|cx| {
+    pub fn receive(&mut self) -> impl Future<Output = &mut T> {
+        poll_fn(|cx| {
             self.channel.state.lock(|s| {
                 let s = &mut *s.borrow_mut();
                 match s.pop_index() {
-                    Some(i) => Poll::Ready(i),
+                    Some(i) => {
+                        let r = unsafe { &mut *self.channel.buf.add(i) };
+                        Poll::Ready(r)
+                    }
                     None => {
                         s.send_waker.register(cx.waker());
                         Poll::Pending
@@ -182,18 +230,39 @@ impl<'a, M: RawMutex, T> Receiver<'a, M, T> {
                 }
             })
         })
-        .await;
-        unsafe { &mut *self.channel.buf.add(i) }
     }
 
     /// Notify the channel that the receiving of the value has been finalized.
     pub fn receive_done(&mut self) {
         self.channel.state.lock(|s| s.borrow_mut().pop_done())
     }
+
+    /// Clears all elements in the channel.
+    pub fn clear(&mut self) {
+        self.channel.state.lock(|s| {
+            s.borrow_mut().clear();
+        });
+    }
+
+    /// Returns the number of elements currently in the channel.
+    pub fn len(&self) -> usize {
+        self.channel.state.lock(|s| s.borrow().len())
+    }
+
+    /// Returns whether the channel is empty.
+    pub fn is_empty(&self) -> bool {
+        self.channel.state.lock(|s| s.borrow().is_empty())
+    }
+
+    /// Returns whether the channel is full.
+    pub fn is_full(&self) -> bool {
+        self.channel.state.lock(|s| s.borrow().is_full())
+    }
 }
 
 struct State {
-    len: usize,
+    /// Maximum number of elements the channel can hold.
+    capacity: usize,
 
     /// Front index. Always 0..=(N-1)
     front: usize,
@@ -210,10 +279,31 @@ struct State {
 
 impl State {
     fn increment(&self, i: usize) -> usize {
-        if i + 1 == self.len {
+        if i + 1 == self.capacity {
             0
         } else {
             i + 1
+        }
+    }
+
+    fn clear(&mut self) {
+        if self.full {
+            self.receive_waker.wake();
+        }
+        self.front = 0;
+        self.back = 0;
+        self.full = false;
+    }
+
+    fn len(&self) -> usize {
+        if !self.full {
+            if self.back >= self.front {
+                self.back - self.front
+            } else {
+                self.capacity + self.back - self.front
+            }
+        } else {
+            self.capacity
         }
     }
 

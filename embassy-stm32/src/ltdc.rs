@@ -261,23 +261,23 @@ impl<'d, T: Instance> Ltdc<'d, T> {
         // configure the HS, VS, DE and PC polarity
         ltdc.gcr().modify(|w| {
             w.set_hspol(match config.h_sync_polarity {
-                PolarityActive::ActiveHigh => Hspol::ACTIVEHIGH,
-                PolarityActive::ActiveLow => Hspol::ACTIVELOW,
+                PolarityActive::ActiveHigh => Hspol::ACTIVE_HIGH,
+                PolarityActive::ActiveLow => Hspol::ACTIVE_LOW,
             });
 
             w.set_vspol(match config.v_sync_polarity {
-                PolarityActive::ActiveHigh => Vspol::ACTIVEHIGH,
-                PolarityActive::ActiveLow => Vspol::ACTIVELOW,
+                PolarityActive::ActiveHigh => Vspol::ACTIVE_HIGH,
+                PolarityActive::ActiveLow => Vspol::ACTIVE_LOW,
             });
 
             w.set_depol(match config.data_enable_polarity {
-                PolarityActive::ActiveHigh => Depol::ACTIVEHIGH,
-                PolarityActive::ActiveLow => Depol::ACTIVELOW,
+                PolarityActive::ActiveHigh => Depol::ACTIVE_HIGH,
+                PolarityActive::ActiveLow => Depol::ACTIVE_LOW,
             });
 
             w.set_pcpol(match config.pixel_clock_polarity {
-                PolarityEdge::RisingEdge => Pcpol::RISINGEDGE,
-                PolarityEdge::FallingEdge => Pcpol::FALLINGEDGE,
+                PolarityEdge::RisingEdge => Pcpol::RISING_EDGE,
+                PolarityEdge::FallingEdge => Pcpol::FALLING_EDGE,
             });
         });
 
@@ -395,7 +395,10 @@ impl<'d, T: Instance> Ltdc<'d, T> {
         // framebuffer pitch and line length
         layer.cfblr().modify(|w| {
             w.set_cfbp(width * bytes_per_pixel);
+            #[cfg(not(stm32u5))]
             w.set_cfbll(width * bytes_per_pixel + 7);
+            #[cfg(stm32u5)]
+            w.set_cfbll(width * bytes_per_pixel + 3);
         });
 
         // framebuffer line number

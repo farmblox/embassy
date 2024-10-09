@@ -27,8 +27,14 @@ pub enum Error {
 }
 
 #[cfg(not(gpdma))]
-impl From<ringbuffer::OverrunError> for Error {
-    fn from(_: ringbuffer::OverrunError) -> Self {
+impl From<ringbuffer::Error> for Error {
+    fn from(#[allow(unused)] err: ringbuffer::Error) -> Self {
+        #[cfg(feature = "defmt")]
+        {
+            if err == ringbuffer::Error::DmaUnsynced {
+                defmt::error!("Ringbuffer broken invariants detected!");
+            }
+        }
         Self::Overrun
     }
 }
@@ -46,12 +52,12 @@ impl Mode {
     const fn mode(&self, tx_rx: TxRx) -> vals::Mode {
         match tx_rx {
             TxRx::Transmitter => match self {
-                Mode::Master => vals::Mode::MASTERTX,
-                Mode::Slave => vals::Mode::SLAVETX,
+                Mode::Master => vals::Mode::MASTER_TX,
+                Mode::Slave => vals::Mode::SLAVE_TX,
             },
             TxRx::Receiver => match self {
-                Mode::Master => vals::Mode::MASTERRX,
-                Mode::Slave => vals::Mode::SLAVERX,
+                Mode::Master => vals::Mode::MASTER_RX,
+                Mode::Slave => vals::Mode::SLAVE_RX,
             },
         }
     }
@@ -80,7 +86,7 @@ impl SlotSize {
     #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn slotsz(&self) -> vals::Slotsz {
         match self {
-            SlotSize::DataSize => vals::Slotsz::DATASIZE,
+            SlotSize::DataSize => vals::Slotsz::DATA_SIZE,
             SlotSize::Channel16 => vals::Slotsz::BIT16,
             SlotSize::Channel32 => vals::Slotsz::BIT32,
         }
@@ -149,8 +155,8 @@ impl MuteValue {
     #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn muteval(&self) -> vals::Muteval {
         match self {
-            MuteValue::Zero => vals::Muteval::SENDZERO,
-            MuteValue::LastValue => vals::Muteval::SENDLAST,
+            MuteValue::Zero => vals::Muteval::SEND_ZERO,
+            MuteValue::LastValue => vals::Muteval::SEND_LAST,
         }
     }
 }
@@ -184,7 +190,7 @@ pub enum SyncInput {
     /// Syncs with the other A/B sub-block within the SAI unit
     Internal,
     /// Syncs with a sub-block in the other SAI unit
-    #[cfg(any(sai_v4_2pdm, sai_v4_4pdm))]
+    #[cfg(any(sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     External(SyncInputInstance),
 }
 
@@ -193,14 +199,14 @@ impl SyncInput {
         match self {
             SyncInput::None => vals::Syncen::ASYNCHRONOUS,
             SyncInput::Internal => vals::Syncen::INTERNAL,
-            #[cfg(any(sai_v4_2pdm, sai_v4_4pdm))]
+            #[cfg(any(sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
             SyncInput::External(_) => vals::Syncen::EXTERNAL,
         }
     }
 }
 
 /// SAI instance to sync from.
-#[cfg(any(sai_v4_2pdm, sai_v4_4pdm))]
+#[cfg(any(sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
 #[derive(Copy, Clone, PartialEq)]
 #[allow(missing_docs)]
 pub enum SyncInputInstance {
@@ -245,8 +251,8 @@ impl BitOrder {
     #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn lsbfirst(&self) -> vals::Lsbfirst {
         match self {
-            BitOrder::LsbFirst => vals::Lsbfirst::LSBFIRST,
-            BitOrder::MsbFirst => vals::Lsbfirst::MSBFIRST,
+            BitOrder::LsbFirst => vals::Lsbfirst::LSB_FIRST,
+            BitOrder::MsbFirst => vals::Lsbfirst::MSB_FIRST,
         }
     }
 }
@@ -264,8 +270,8 @@ impl FrameSyncOffset {
     #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn fsoff(&self) -> vals::Fsoff {
         match self {
-            FrameSyncOffset::OnFirstBit => vals::Fsoff::ONFIRST,
-            FrameSyncOffset::BeforeFirstBit => vals::Fsoff::BEFOREFIRST,
+            FrameSyncOffset::OnFirstBit => vals::Fsoff::ON_FIRST,
+            FrameSyncOffset::BeforeFirstBit => vals::Fsoff::BEFORE_FIRST,
         }
     }
 }
@@ -283,8 +289,8 @@ impl FrameSyncPolarity {
     #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn fspol(&self) -> vals::Fspol {
         match self {
-            FrameSyncPolarity::ActiveLow => vals::Fspol::FALLINGEDGE,
-            FrameSyncPolarity::ActiveHigh => vals::Fspol::RISINGEDGE,
+            FrameSyncPolarity::ActiveLow => vals::Fspol::FALLING_EDGE,
+            FrameSyncPolarity::ActiveHigh => vals::Fspol::RISING_EDGE,
         }
     }
 }
@@ -319,8 +325,8 @@ impl ClockStrobe {
     #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn ckstr(&self) -> vals::Ckstr {
         match self {
-            ClockStrobe::Falling => vals::Ckstr::FALLINGEDGE,
-            ClockStrobe::Rising => vals::Ckstr::RISINGEDGE,
+            ClockStrobe::Falling => vals::Ckstr::FALLING_EDGE,
+            ClockStrobe::Rising => vals::Ckstr::RISING_EDGE,
         }
     }
 }
@@ -337,8 +343,8 @@ impl ComplementFormat {
     #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn cpl(&self) -> vals::Cpl {
         match self {
-            ComplementFormat::OnesComplement => vals::Cpl::ONESCOMPLEMENT,
-            ComplementFormat::TwosComplement => vals::Cpl::TWOSCOMPLEMENT,
+            ComplementFormat::OnesComplement => vals::Cpl::ONES_COMPLEMENT,
+            ComplementFormat::TwosComplement => vals::Cpl::TWOS_COMPLEMENT,
         }
     }
 }
@@ -356,8 +362,8 @@ impl Companding {
     #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn comp(&self) -> vals::Comp {
         match self {
-            Companding::None => vals::Comp::NOCOMPANDING,
-            Companding::MuLaw => vals::Comp::MULAW,
+            Companding::None => vals::Comp::NO_COMPANDING,
+            Companding::MuLaw => vals::Comp::MU_LAW,
             Companding::ALaw => vals::Comp::ALAW,
         }
     }
@@ -375,7 +381,7 @@ impl OutputDrive {
     #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn outdriv(&self) -> vals::Outdriv {
         match self {
-            OutputDrive::OnStart => vals::Outdriv::ONSTART,
+            OutputDrive::OnStart => vals::Outdriv::ON_START,
             OutputDrive::Immediately => vals::Outdriv::IMMEDIATELY,
         }
     }
@@ -661,12 +667,12 @@ fn get_af_types(mode: Mode, tx_rx: TxRx) -> (AfType, AfType) {
         //sd is defined by tx/rx mode
         match tx_rx {
             TxRx::Transmitter => AfType::output(OutputType::PushPull, Speed::VeryHigh),
-            TxRx::Receiver => AfType::input(Pull::None),
+            TxRx::Receiver => AfType::input(Pull::Down), // Ensure mute level when no input is connected.
         },
         //clocks (mclk, sck and fs) are defined by master/slave
         match mode {
             Mode::Master => AfType::output(OutputType::PushPull, Speed::VeryHigh),
-            Mode::Slave => AfType::input(Pull::None),
+            Mode::Slave => AfType::input(Pull::Down), // Ensure no clocks when no input is connected.
         },
     )
 }
@@ -698,12 +704,12 @@ fn update_synchronous_config(config: &mut Config) {
     config.mode = Mode::Slave;
     config.sync_output = false;
 
-    #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm))]
+    #[cfg(any(sai_v1, sai_v2))]
     {
         config.sync_input = SyncInput::Internal;
     }
 
-    #[cfg(any(sai_v4_2pdm, sai_v4_4pdm))]
+    #[cfg(any(sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     {
         //this must either be Internal or External
         //The asynchronous sub-block on the same SAI needs to enable sync_output
@@ -855,13 +861,16 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
         ring_buffer: RingBuffer<'d, W>,
         config: Config,
     ) -> Self {
+        let ch = T::REGS.ch(sub_block as usize);
+
         #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
         {
-            let ch = T::REGS.ch(sub_block as usize);
             ch.cr1().modify(|w| w.set_saien(false));
         }
 
-        #[cfg(any(sai_v4_2pdm, sai_v4_4pdm))]
+        ch.cr2().modify(|w| w.set_fflush(true));
+
+        #[cfg(any(sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
         {
             if let SyncInput::External(i) = config.sync_input {
                 T::REGS.gcr().modify(|w| {
@@ -882,7 +891,6 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
 
         #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
         {
-            let ch = T::REGS.ch(sub_block as usize);
             ch.cr1().modify(|w| {
                 w.set_mode(config.mode.mode(if Self::is_transmitter(&ring_buffer) {
                     TxRx::Transmitter
@@ -899,9 +907,9 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
                 w.set_mckdiv(config.master_clock_divider.mckdiv());
                 w.set_nodiv(
                     if config.master_clock_divider == MasterClockDivider::MasterClockDisabled {
-                        vals::Nodiv::NODIV
+                        vals::Nodiv::NO_DIV
                     } else {
-                        vals::Nodiv::MASTERCLOCK
+                        vals::Nodiv::MASTER_CLOCK
                     },
                 );
                 w.set_dmaen(true);
@@ -950,13 +958,14 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
     }
 
     /// Start the SAI driver.
-    pub fn start(&mut self) {
+    ///
+    /// Only receivers can be started. Transmitters are started on the first writing operation.
+    pub fn start(&mut self) -> Result<(), Error> {
         match self.ring_buffer {
-            RingBuffer::Writable(ref mut rb) => {
-                rb.start();
-            }
+            RingBuffer::Writable(_) => Err(Error::NotAReceiver),
             RingBuffer::Readable(ref mut rb) => {
                 rb.start();
+                Ok(())
             }
         }
     }
@@ -971,14 +980,6 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
     /// Reset SAI operation.
     pub fn reset() {
         rcc::enable_and_reset::<T>();
-    }
-
-    /// Flush.
-    pub fn flush(&mut self) {
-        let ch = T::REGS.ch(self.sub_block as usize);
-        ch.cr1().modify(|w| w.set_saien(false));
-        ch.cr2().modify(|w| w.set_fflush(true));
-        ch.cr1().modify(|w| w.set_saien(true));
     }
 
     /// Enable or disable mute.
@@ -1002,7 +1003,26 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
         }
     }
 
+    /// Wait until any SAI write error occurs.
+    ///
+    /// One useful application for this is stopping playback as soon as the SAI
+    /// experiences an overrun of the ring buffer. Then, instead of letting
+    /// the SAI peripheral play the last written buffer over and over again, SAI
+    /// can be muted or dropped instead.
+    pub async fn wait_write_error(&mut self) -> Result<(), Error> {
+        match &mut self.ring_buffer {
+            RingBuffer::Writable(buffer) => {
+                buffer.wait_write_error().await?;
+                Ok(())
+            }
+            _ => return Err(Error::NotATransmitter),
+        }
+    }
+
     /// Write data to the SAI ringbuffer.
+    ///
+    /// The first write starts the DMA after filling the ring buffer with the provided data.
+    /// This ensures that the DMA does not run before data is available in the ring buffer.
     ///
     /// This appends the data to the buffer and returns immediately. The
     /// data will be transmitted in the background.
@@ -1011,7 +1031,12 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
     pub async fn write(&mut self, data: &[W]) -> Result<(), Error> {
         match &mut self.ring_buffer {
             RingBuffer::Writable(buffer) => {
-                buffer.write_exact(data).await?;
+                if buffer.is_running() {
+                    buffer.write_exact(data).await?;
+                } else {
+                    buffer.write_immediate(data)?;
+                    buffer.start();
+                }
                 Ok(())
             }
             _ => return Err(Error::NotATransmitter),
@@ -1039,6 +1064,7 @@ impl<'d, T: Instance, W: word::Word> Drop for Sai<'d, T, W> {
     fn drop(&mut self) {
         let ch = T::REGS.ch(self.sub_block as usize);
         ch.cr1().modify(|w| w.set_saien(false));
+        ch.cr2().modify(|w| w.set_fflush(true));
         self.fs.as_ref().map(|x| x.set_as_disconnected());
         self.sd.as_ref().map(|x| x.set_as_disconnected());
         self.sck.as_ref().map(|x| x.set_as_disconnected());

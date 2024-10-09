@@ -18,7 +18,7 @@ use crate::{peripherals, Peripheral};
 
 /// QSPI transfer configuration.
 pub struct TransferConfig {
-    /// Instraction width (IMODE)
+    /// Instruction width (IMODE)
     pub iwidth: QspiWidth,
     /// Address width (ADMODE)
     pub awidth: QspiWidth,
@@ -148,7 +148,7 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
     }
 
     /// Do a QSPI command.
-    pub fn command(&mut self, transaction: TransferConfig) {
+    pub fn blocking_command(&mut self, transaction: TransferConfig) {
         #[cfg(not(stm32h7))]
         T::REGS.cr().modify(|v| v.set_dmaen(false));
         self.setup_transaction(QspiMode::IndirectWrite, &transaction, None);
@@ -172,7 +172,7 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
         });
 
         for b in buf {
-            while !T::REGS.sr().read().tcf() && !T::REGS.sr().read().ftf() {}
+            while !T::REGS.sr().read().tcf() && (T::REGS.sr().read().flevel() == 0) {}
             *b = unsafe { (T::REGS.dr().as_ptr() as *mut u8).read_volatile() };
         }
 
@@ -201,7 +201,42 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
         T::REGS.fcr().modify(|v| v.set_ctcf(true));
     }
 
+    /// Enable memory map mode
+    pub fn enable_memory_map(&mut self, transaction: &TransferConfig) {
+        T::REGS.fcr().modify(|v| {
+            v.set_csmf(true);
+            v.set_ctcf(true);
+            v.set_ctef(true);
+            v.set_ctof(true);
+        });
+        T::REGS.ccr().write(|v| {
+            v.set_fmode(QspiMode::MemoryMapped.into());
+            v.set_imode(transaction.iwidth.into());
+            v.set_instruction(transaction.instruction);
+            v.set_admode(transaction.awidth.into());
+            v.set_adsize(self.config.address_size.into());
+            v.set_dmode(transaction.dwidth.into());
+            v.set_abmode(QspiWidth::NONE.into());
+            v.set_dcyc(transaction.dummy.into());
+        });
+    }
+
     fn setup_transaction(&mut self, fmode: QspiMode, transaction: &TransferConfig, data_len: Option<usize>) {
+        match (transaction.address, transaction.awidth) {
+            (Some(_), QspiWidth::NONE) => panic!("QSPI address can't be sent with an address width of NONE"),
+            (Some(_), _) => {}
+            (None, QspiWidth::NONE) => {}
+            (None, _) => panic!("QSPI address is not set, so the address width should be NONE"),
+        }
+
+        match (data_len, transaction.dwidth) {
+            (Some(0), _) => panic!("QSPI data must be at least one byte"),
+            (Some(_), QspiWidth::NONE) => panic!("QSPI data can't be sent with a data width of NONE"),
+            (Some(_), _) => {}
+            (None, QspiWidth::NONE) => {}
+            (None, _) => panic!("QSPI data is empty, so the data width should be NONE"),
+        }
+
         T::REGS.fcr().modify(|v| {
             v.set_csmf(true);
             v.set_ctcf(true);
@@ -353,6 +388,21 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
 
     /// Blocking read data, using DMA.
     pub fn blocking_read_dma(&mut self, buf: &mut [u8], transaction: TransferConfig) {
+        let transfer = self.start_read_transfer(transaction, buf);
+        transfer.blocking_wait();
+    }
+
+    /// Async read data, using DMA.
+    pub async fn read_dma(&mut self, buf: &mut [u8], transaction: TransferConfig) {
+        let transfer = self.start_read_transfer(transaction, buf);
+        transfer.await;
+    }
+
+    fn start_read_transfer<'a>(
+        &'a mut self,
+        transaction: TransferConfig,
+        buf: &'a mut [u8],
+    ) -> crate::dma::Transfer<'a> {
         self.setup_transaction(QspiMode::IndirectWrite, &transaction, Some(buf.len()));
 
         T::REGS.ccr().modify(|v| {
@@ -373,12 +423,22 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
         // STM32H7 does not have dmaen
         #[cfg(not(stm32h7))]
         T::REGS.cr().modify(|v| v.set_dmaen(true));
-
-        transfer.blocking_wait();
+        transfer
     }
 
     /// Blocking write data, using DMA.
     pub fn blocking_write_dma(&mut self, buf: &[u8], transaction: TransferConfig) {
+        let transfer = self.start_write_transfer(transaction, buf);
+        transfer.blocking_wait();
+    }
+
+    /// Async write data, using DMA.
+    pub async fn write_dma(&mut self, buf: &[u8], transaction: TransferConfig) {
+        let transfer = self.start_write_transfer(transaction, buf);
+        transfer.await;
+    }
+
+    fn start_write_transfer<'a>(&'a mut self, transaction: TransferConfig, buf: &'a [u8]) -> crate::dma::Transfer<'a> {
         self.setup_transaction(QspiMode::IndirectWrite, &transaction, Some(buf.len()));
 
         T::REGS.ccr().modify(|v| {
@@ -395,8 +455,7 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
         // STM32H7 does not have dmaen
         #[cfg(not(stm32h7))]
         T::REGS.cr().modify(|v| v.set_dmaen(true));
-
-        transfer.blocking_wait();
+        transfer
     }
 }
 

@@ -15,6 +15,7 @@ pub use rp_binary_info as binary_info;
 #[cfg(feature = "critical-section-impl")]
 mod critical_section_impl;
 
+#[cfg(feature = "rp2040")]
 mod intrinsics;
 
 pub mod adc;
@@ -31,6 +32,9 @@ pub mod gpio;
 pub mod i2c;
 pub mod i2c_slave;
 pub mod multicore;
+#[cfg(feature = "_rp235x")]
+pub mod otp;
+pub mod pio_programs;
 pub mod pwm;
 mod reset;
 pub mod rom_data;
@@ -39,6 +43,8 @@ pub mod rtc;
 pub mod spi;
 #[cfg(feature = "time-driver")]
 pub mod time_driver;
+#[cfg(feature = "_rp235x")]
+pub mod trng;
 pub mod uart;
 pub mod usb;
 pub mod watchdog;
@@ -160,24 +166,42 @@ embassy_hal_internal::interrupt_mod!(
 // developer note: this macro can't be in `embassy-hal-internal` due to the use of `$crate`.
 #[macro_export]
 macro_rules! bind_interrupts {
-    ($vis:vis struct $name:ident { $($irq:ident => $($handler:ty),*;)* }) => {
-            #[derive(Copy, Clone)]
-            $vis struct $name;
+    ($vis:vis struct $name:ident {
+        $(
+            $(#[cfg($cond_irq:meta)])?
+            $irq:ident => $(
+                $(#[cfg($cond_handler:meta)])?
+                $handler:ty
+            ),*;
+        )*
+    }) => {
+        #[derive(Copy, Clone)]
+        $vis struct $name;
 
         $(
             #[allow(non_snake_case)]
             #[no_mangle]
+            $(#[cfg($cond_irq)])?
             unsafe extern "C" fn $irq() {
                 $(
+                    $(#[cfg($cond_handler)])?
                     <$handler as $crate::interrupt::typelevel::Handler<$crate::interrupt::typelevel::$irq>>::on_interrupt();
+
                 )*
             }
 
-            $(
-                unsafe impl $crate::interrupt::typelevel::Binding<$crate::interrupt::typelevel::$irq, $handler> for $name {}
-            )*
+            $(#[cfg($cond_irq)])?
+            $crate::bind_interrupts!(@inner
+                $(
+                    $(#[cfg($cond_handler)])?
+                    unsafe impl $crate::interrupt::typelevel::Binding<$crate::interrupt::typelevel::$irq, $handler> for $name {}
+                )*
+            );
         )*
     };
+    (@inner $($t:tt)*) => {
+        $($t)*
+    }
 }
 
 #[cfg(feature = "rp2040")]
@@ -399,9 +423,11 @@ embassy_hal_internal::peripherals! {
 
     WATCHDOG,
     BOOTSEL,
+
+    TRNG
 }
 
-#[cfg(not(feature = "boot2-none"))]
+#[cfg(all(not(feature = "boot2-none"), feature = "rp2040"))]
 macro_rules! select_bootloader {
     ( $( $feature:literal => $loader:ident, )+ default => $default:ident ) => {
         $(
@@ -418,7 +444,7 @@ macro_rules! select_bootloader {
     }
 }
 
-#[cfg(not(feature = "boot2-none"))]
+#[cfg(all(not(feature = "boot2-none"), feature = "rp2040"))]
 select_bootloader! {
     "boot2-at25sf128a" => BOOT_LOADER_AT25SF128A,
     "boot2-gd25q64cs" => BOOT_LOADER_GD25Q64CS,
@@ -472,7 +498,7 @@ pub fn install_core0_stack_guard() -> Result<(), ()> {
 
 #[cfg(all(feature = "rp2040", not(feature = "_test")))]
 #[inline(always)]
-fn install_stack_guard(stack_bottom: *mut usize) -> Result<(), ()> {
+unsafe fn install_stack_guard(stack_bottom: *mut usize) -> Result<(), ()> {
     let core = unsafe { cortex_m::Peripherals::steal() };
 
     // Fail if MPU is already configured
@@ -500,7 +526,7 @@ fn install_stack_guard(stack_bottom: *mut usize) -> Result<(), ()> {
 
 #[cfg(all(feature = "_rp235x", not(feature = "_test")))]
 #[inline(always)]
-fn install_stack_guard(stack_bottom: *mut usize) -> Result<(), ()> {
+unsafe fn install_stack_guard(stack_bottom: *mut usize) -> Result<(), ()> {
     let core = unsafe { cortex_m::Peripherals::steal() };
 
     // Fail if MPU is already configured
@@ -520,7 +546,7 @@ fn install_stack_guard(stack_bottom: *mut usize) -> Result<(), ()> {
 // so the compile fails when we try to use ARMv8 peripherals.
 #[cfg(feature = "_test")]
 #[inline(always)]
-fn install_stack_guard(_stack_bottom: *mut usize) -> Result<(), ()> {
+unsafe fn install_stack_guard(_stack_bottom: *mut usize) -> Result<(), ()> {
     Ok(())
 }
 

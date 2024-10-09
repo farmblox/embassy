@@ -36,7 +36,7 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::ETH> for InterruptHandl
 }
 
 /// Ethernet driver.
-pub struct Ethernet<'d, T: Instance, P: PHY> {
+pub struct Ethernet<'d, T: Instance, P: Phy> {
     _peri: PeripheralRef<'d, T>,
     pub(crate) tx: TDesRing<'d>,
     pub(crate) rx: RDesRing<'d>,
@@ -63,7 +63,7 @@ macro_rules! config_pins {
     };
 }
 
-impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
+impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
     /// Create a new RMII ethernet driver using 9 pins.
     pub fn new<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
@@ -192,6 +192,9 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
             // TODO: Carrier sense ? ECRSFD
         });
 
+        // Disable multicast filter
+        mac.macpfr().modify(|w| w.set_pm(true));
+
         // Note: Writing to LR triggers synchronisation of both LR and HR into the MAC core,
         // so the LR write must happen after the HR write.
         mac.maca0hr()
@@ -301,7 +304,7 @@ pub struct EthernetStationManagement<T: Instance> {
     clock_range: u8,
 }
 
-unsafe impl<T: Instance> StationManagement for EthernetStationManagement<T> {
+impl<T: Instance> StationManagement for EthernetStationManagement<T> {
     fn smi_read(&mut self, phy_addr: u8, reg: u8) -> u16 {
         let mac = T::regs().ethernet_mac();
 
@@ -331,7 +334,7 @@ unsafe impl<T: Instance> StationManagement for EthernetStationManagement<T> {
     }
 }
 
-impl<'d, T: Instance, P: PHY> Drop for Ethernet<'d, T, P> {
+impl<'d, T: Instance, P: Phy> Drop for Ethernet<'d, T, P> {
     fn drop(&mut self) {
         let dma = T::regs().ethernet_dma();
         let mac = T::regs().ethernet_mac();

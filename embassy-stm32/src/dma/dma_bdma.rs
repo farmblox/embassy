@@ -6,7 +6,7 @@ use core::task::{Context, Poll, Waker};
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use super::ringbuffer::{DmaCtrl, OverrunError, ReadableDmaRingBuffer, WritableDmaRingBuffer};
+use super::ringbuffer::{DmaCtrl, Error, ReadableDmaRingBuffer, WritableDmaRingBuffer};
 use super::word::{Word, WordSize};
 use super::{AnyChannel, Channel, Dir, Request, STATE};
 use crate::interrupt::typelevel::Interrupt;
@@ -100,7 +100,7 @@ impl From<Priority> for pac::dma::vals::Pl {
             Priority::Low => pac::dma::vals::Pl::LOW,
             Priority::Medium => pac::dma::vals::Pl::MEDIUM,
             Priority::High => pac::dma::vals::Pl::HIGH,
-            Priority::VeryHigh => pac::dma::vals::Pl::VERYHIGH,
+            Priority::VeryHigh => pac::dma::vals::Pl::VERY_HIGH,
         }
     }
 }
@@ -112,7 +112,7 @@ impl From<Priority> for pac::bdma::vals::Pl {
             Priority::Low => pac::bdma::vals::Pl::LOW,
             Priority::Medium => pac::bdma::vals::Pl::MEDIUM,
             Priority::High => pac::bdma::vals::Pl::HIGH,
-            Priority::VeryHigh => pac::bdma::vals::Pl::VERYHIGH,
+            Priority::VeryHigh => pac::bdma::vals::Pl::VERY_HIGH,
         }
     }
 }
@@ -138,8 +138,8 @@ mod dma_only {
     impl From<Dir> for vals::Dir {
         fn from(raw: Dir) -> Self {
             match raw {
-                Dir::MemoryToPeripheral => Self::MEMORYTOPERIPHERAL,
-                Dir::PeripheralToMemory => Self::PERIPHERALTOMEMORY,
+                Dir::MemoryToPeripheral => Self::MEMORY_TO_PERIPHERAL,
+                Dir::PeripheralToMemory => Self::PERIPHERAL_TO_MEMORY,
             }
         }
     }
@@ -207,7 +207,7 @@ mod dma_only {
             match value {
                 FifoThreshold::Quarter => vals::Fth::QUARTER,
                 FifoThreshold::Half => vals::Fth::HALF,
-                FifoThreshold::ThreeQuarters => vals::Fth::THREEQUARTERS,
+                FifoThreshold::ThreeQuarters => vals::Fth::THREE_QUARTERS,
                 FifoThreshold::Full => vals::Fth::FULL,
             }
         }
@@ -233,8 +233,8 @@ mod bdma_only {
     impl From<Dir> for vals::Dir {
         fn from(raw: Dir) -> Self {
             match raw {
-                Dir::MemoryToPeripheral => Self::FROMMEMORY,
-                Dir::PeripheralToMemory => Self::FROMPERIPHERAL,
+                Dir::MemoryToPeripheral => Self::FROM_MEMORY,
+                Dir::PeripheralToMemory => Self::FROM_PERIPHERAL,
             }
         }
     }
@@ -299,7 +299,6 @@ impl AnyChannel {
                 } else {
                     return;
                 }
-
                 state.waker.wake();
             }
             #[cfg(bdma)]
@@ -341,7 +340,8 @@ impl AnyChannel {
         mem_addr: *mut u32,
         mem_len: usize,
         incr_mem: bool,
-        data_size: WordSize,
+        mem_size: WordSize,
+        peripheral_size: WordSize,
         options: TransferOptions,
     ) {
         let info = self.info();
@@ -359,11 +359,13 @@ impl AnyChannel {
         match self.info().dma {
             #[cfg(dma)]
             DmaInfo::Dma(r) => {
+                let state: &ChannelState = &STATE[self.id as usize];
                 let ch = r.st(info.num);
 
                 // "Preceding reads and writes cannot be moved past subsequent writes."
                 fence(Ordering::SeqCst);
 
+                state.complete_count.store(0, Ordering::Release);
                 self.clear_irqs();
 
                 ch.par().write_value(peri_addr as u32);
@@ -381,8 +383,8 @@ impl AnyChannel {
                 });
                 ch.cr().write(|w| {
                     w.set_dir(dir.into());
-                    w.set_msize(data_size.into());
-                    w.set_psize(data_size.into());
+                    w.set_msize(mem_size.into());
+                    w.set_psize(peripheral_size.into());
                     w.set_pl(options.priority.into());
                     w.set_minc(incr_mem);
                     w.set_pinc(false);
@@ -415,8 +417,8 @@ impl AnyChannel {
                 ch.mar().write_value(mem_addr as u32);
                 ch.ndtr().write(|w| w.set_ndt(mem_len as u16));
                 ch.cr().write(|w| {
-                    w.set_psize(data_size.into());
-                    w.set_msize(data_size.into());
+                    w.set_psize(peripheral_size.into());
+                    w.set_msize(mem_size.into());
                     w.set_minc(incr_mem);
                     w.set_dir(dir.into());
                     w.set_teie(true);
@@ -488,6 +490,26 @@ impl AnyChannel {
                 r.ch(info.num).cr().write(|w| {
                     w.set_teie(true);
                     w.set_tcie(true);
+                });
+            }
+        }
+    }
+
+    fn request_pause(&self) {
+        let info = self.info();
+        match self.info().dma {
+            #[cfg(dma)]
+            DmaInfo::Dma(r) => {
+                // Disable the channel without overwriting the existing configuration
+                r.st(info.num).cr().modify(|w| {
+                    w.set_en(false);
+                });
+            }
+            #[cfg(bdma)]
+            DmaInfo::Bdma(r) => {
+                // Disable the channel without overwriting the existing configuration
+                r.ch(info.num).cr().modify(|w| {
+                    w.set_en(false);
                 });
             }
         }
@@ -583,27 +605,28 @@ impl<'a> Transfer<'a> {
             buf.len(),
             true,
             W::size(),
+            W::size(),
             options,
         )
     }
 
     /// Create a new write DMA transfer (memory to peripheral).
-    pub unsafe fn new_write<W: Word>(
+    pub unsafe fn new_write<MW: Word, PW: Word>(
         channel: impl Peripheral<P = impl Channel> + 'a,
         request: Request,
-        buf: &'a [W],
-        peri_addr: *mut W,
+        buf: &'a [MW],
+        peri_addr: *mut PW,
         options: TransferOptions,
     ) -> Self {
         Self::new_write_raw(channel, request, buf, peri_addr, options)
     }
 
     /// Create a new write DMA transfer (memory to peripheral), using raw pointers.
-    pub unsafe fn new_write_raw<W: Word>(
+    pub unsafe fn new_write_raw<MW: Word, PW: Word>(
         channel: impl Peripheral<P = impl Channel> + 'a,
         request: Request,
-        buf: *const [W],
-        peri_addr: *mut W,
+        buf: *const [MW],
+        peri_addr: *mut PW,
         options: TransferOptions,
     ) -> Self {
         into_ref!(channel);
@@ -613,10 +636,11 @@ impl<'a> Transfer<'a> {
             request,
             Dir::MemoryToPeripheral,
             peri_addr as *const u32,
-            buf as *const W as *mut u32,
+            buf as *const MW as *mut u32,
             buf.len(),
             true,
-            W::size(),
+            MW::size(),
+            PW::size(),
             options,
         )
     }
@@ -641,6 +665,7 @@ impl<'a> Transfer<'a> {
             count,
             false,
             W::size(),
+            W::size(),
             options,
         )
     }
@@ -654,23 +679,41 @@ impl<'a> Transfer<'a> {
         mem_len: usize,
         incr_mem: bool,
         data_size: WordSize,
+        peripheral_size: WordSize,
         options: TransferOptions,
     ) -> Self {
         assert!(mem_len > 0 && mem_len <= 0xFFFF);
 
         channel.configure(
-            _request, dir, peri_addr, mem_addr, mem_len, incr_mem, data_size, options,
+            _request,
+            dir,
+            peri_addr,
+            mem_addr,
+            mem_len,
+            incr_mem,
+            data_size,
+            peripheral_size,
+            options,
         );
         channel.start();
-
         Self { channel }
     }
 
     /// Request the transfer to stop.
+    /// The configuration for this channel will **not be preserved**. If you need to restart the transfer
+    /// at a later point with the same configuration, see [`request_pause`](Self::request_pause) instead.
     ///
     /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
     pub fn request_stop(&mut self) {
         self.channel.request_stop()
+    }
+
+    /// Request the transfer to pause, keeping the existing configuration for this channel.
+    /// To restart the transfer, call [`start`](Self::start) again.
+    ///
+    /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
+    pub fn request_pause(&mut self) {
+        self.channel.request_pause()
     }
 
     /// Return whether this transfer is still running.
@@ -733,10 +776,6 @@ impl<'a> DmaCtrl for DmaCtrlImpl<'a> {
         self.0.get_remaining_transfers() as _
     }
 
-    fn get_complete_count(&self) -> usize {
-        STATE[self.0.id as usize].complete_count.load(Ordering::Acquire)
-    }
-
     fn reset_complete_count(&mut self) -> usize {
         let state = &STATE[self.0.id as usize];
         #[cfg(not(armv6m))]
@@ -777,6 +816,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         let dir = Dir::PeripheralToMemory;
         let data_size = W::size();
 
+        options.half_transfer_ir = true;
         options.complete_transfer_ir = true;
         options.circular = true;
 
@@ -787,6 +827,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
             buffer_ptr as *mut u32,
             len,
             true,
+            data_size,
             data_size,
             options,
         );
@@ -801,27 +842,27 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     ///
     /// You must call this after creating it for it to work.
     pub fn start(&mut self) {
-        self.channel.start()
+        self.channel.start();
     }
 
     /// Clear all data in the ring buffer.
     pub fn clear(&mut self) {
-        self.ringbuf.clear(&mut DmaCtrlImpl(self.channel.reborrow()));
+        self.ringbuf.reset(&mut DmaCtrlImpl(self.channel.reborrow()));
     }
 
     /// Read elements from the ring buffer
     /// Return a tuple of the length read and the length remaining in the buffer
     /// If not all of the elements were read, then there will be some elements in the buffer remaining
     /// The length remaining is the capacity, ring_buf.len(), less the elements remaining after the read
-    /// OverrunError is returned if the portion to be read was overwritten by the DMA controller.
-    pub fn read(&mut self, buf: &mut [W]) -> Result<(usize, usize), OverrunError> {
+    /// Error is returned if the portion to be read was overwritten by the DMA controller.
+    pub fn read(&mut self, buf: &mut [W]) -> Result<(usize, usize), Error> {
         self.ringbuf.read(&mut DmaCtrlImpl(self.channel.reborrow()), buf)
     }
 
     /// Read an exact number of elements from the ringbuffer.
     ///
     /// Returns the remaining number of elements available for immediate reading.
-    /// OverrunError is returned if the portion to be read was overwritten by the DMA controller.
+    /// Error is returned if the portion to be read was overwritten by the DMA controller.
     ///
     /// Async/Wake Behavior:
     /// The underlying DMA peripheral only can wake us when its buffer pointer has reached the halfway point,
@@ -829,10 +870,15 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     /// ring buffer was created with a buffer of size 'N':
     /// - If M equals N/2 or N/2 divides evenly into M, this function will return every N/2 elements read on the DMA source.
     /// - Otherwise, this function may need up to N/2 extra elements to arrive before returning.
-    pub async fn read_exact(&mut self, buffer: &mut [W]) -> Result<usize, OverrunError> {
+    pub async fn read_exact(&mut self, buffer: &mut [W]) -> Result<usize, Error> {
         self.ringbuf
             .read_exact(&mut DmaCtrlImpl(self.channel.reborrow()), buffer)
             .await
+    }
+
+    /// The current length of the ringbuffer
+    pub fn len(&mut self) -> Result<usize, Error> {
+        Ok(self.ringbuf.len(&mut DmaCtrlImpl(self.channel.reborrow()))?)
     }
 
     /// The capacity of the ringbuffer
@@ -845,11 +891,21 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         DmaCtrlImpl(self.channel.reborrow()).set_waker(waker);
     }
 
-    /// Request DMA to stop.
+    /// Request the DMA to stop.
+    /// The configuration for this channel will **not be preserved**. If you need to restart the transfer
+    /// at a later point with the same configuration, see [`request_pause`](Self::request_pause) instead.
     ///
     /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
     pub fn request_stop(&mut self) {
         self.channel.request_stop()
+    }
+
+    /// Request the transfer to pause, keeping the existing configuration for this channel.
+    /// To restart the transfer, call [`start`](Self::start) again.
+    ///
+    /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
+    pub fn request_pause(&mut self) {
+        self.channel.request_pause()
     }
 
     /// Return whether DMA is still running.
@@ -925,6 +981,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
             len,
             true,
             data_size,
+            data_size,
             options,
         );
 
@@ -938,32 +995,43 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
     ///
     /// You must call this after creating it for it to work.
     pub fn start(&mut self) {
-        self.channel.start()
+        self.channel.start();
     }
 
     /// Clear all data in the ring buffer.
     pub fn clear(&mut self) {
-        self.ringbuf.clear(&mut DmaCtrlImpl(self.channel.reborrow()));
+        self.ringbuf.reset(&mut DmaCtrlImpl(self.channel.reborrow()));
     }
 
     /// Write elements directly to the raw buffer.
     /// This can be used to fill the buffer before starting the DMA transfer.
-    #[allow(dead_code)]
-    pub fn write_immediate(&mut self, buf: &[W]) -> Result<(usize, usize), OverrunError> {
+    pub fn write_immediate(&mut self, buf: &[W]) -> Result<(usize, usize), Error> {
         self.ringbuf.write_immediate(buf)
     }
 
     /// Write elements from the ring buffer
     /// Return a tuple of the length written and the length remaining in the buffer
-    pub fn write(&mut self, buf: &[W]) -> Result<(usize, usize), OverrunError> {
+    pub fn write(&mut self, buf: &[W]) -> Result<(usize, usize), Error> {
         self.ringbuf.write(&mut DmaCtrlImpl(self.channel.reborrow()), buf)
     }
 
     /// Write an exact number of elements to the ringbuffer.
-    pub async fn write_exact(&mut self, buffer: &[W]) -> Result<usize, OverrunError> {
+    pub async fn write_exact(&mut self, buffer: &[W]) -> Result<usize, Error> {
         self.ringbuf
             .write_exact(&mut DmaCtrlImpl(self.channel.reborrow()), buffer)
             .await
+    }
+
+    /// Wait for any ring buffer write error.
+    pub async fn wait_write_error(&mut self) -> Result<usize, Error> {
+        self.ringbuf
+            .wait_write_error(&mut DmaCtrlImpl(self.channel.reborrow()))
+            .await
+    }
+
+    /// The current length of the ringbuffer
+    pub fn len(&mut self) -> Result<usize, Error> {
+        Ok(self.ringbuf.len(&mut DmaCtrlImpl(self.channel.reborrow()))?)
     }
 
     /// The capacity of the ringbuffer
@@ -976,11 +1044,21 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         DmaCtrlImpl(self.channel.reborrow()).set_waker(waker);
     }
 
-    /// Request DMA to stop.
+    /// Request the DMA to stop.
+    /// The configuration for this channel will **not be preserved**. If you need to restart the transfer
+    /// at a later point with the same configuration, see [`request_pause`](Self::request_pause) instead.
     ///
     /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
     pub fn request_stop(&mut self) {
         self.channel.request_stop()
+    }
+
+    /// Request the transfer to pause, keeping the existing configuration for this channel.
+    /// To restart the transfer, call [`start`](Self::start) again.
+    ///
+    /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
+    pub fn request_pause(&mut self) {
+        self.channel.request_pause()
     }
 
     /// Return whether DMA is still running.

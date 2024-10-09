@@ -36,6 +36,7 @@ use crate::peripherals::RTC;
 /// Errors that can occur on methods on [RtcClock]
 #[non_exhaustive]
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum RtcError {
     /// An invalid DateTime was given or stored on the hardware.
     InvalidDateTime(DateTimeError),
@@ -285,6 +286,7 @@ trait SealedInstance {
     const BACKUP_REGISTER_COUNT: usize;
 
     #[cfg(feature = "low-power")]
+    #[cfg(not(any(stm32u5, stm32u0)))]
     const EXTI_WAKEUP_LINE: usize;
 
     #[cfg(feature = "low-power")]
