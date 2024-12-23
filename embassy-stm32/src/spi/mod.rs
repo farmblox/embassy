@@ -55,6 +55,9 @@ pub struct Config {
     /// There are some ICs that require a pull-up on the MISO pin for some applications.
     /// If you  are unsure, you probably don't need this.
     pub miso_pull: Pull,
+    /// signal rise/fall speed (slew rate) - defaults to `Medium`.
+    /// Increase for high SPI speeds. Change to `Low` to reduce ringing.
+    pub rise_fall_speed: Speed,
 }
 
 impl Default for Config {
@@ -64,6 +67,7 @@ impl Default for Config {
             bit_order: BitOrder::MsbFirst,
             frequency: Hertz(1_000_000),
             miso_pull: Pull::None,
+            rise_fall_speed: Speed::VeryHigh,
         }
     }
 }
@@ -92,14 +96,14 @@ impl Config {
 
     #[cfg(gpio_v1)]
     fn sck_af(&self) -> AfType {
-        AfType::output(OutputType::PushPull, Speed::VeryHigh)
+        AfType::output(OutputType::PushPull, self.rise_fall_speed)
     }
 
     #[cfg(gpio_v2)]
     fn sck_af(&self) -> AfType {
         AfType::output_pull(
             OutputType::PushPull,
-            Speed::VeryHigh,
+            self.rise_fall_speed,
             match self.mode.polarity {
                 Polarity::IdleLow => Pull::Down,
                 Polarity::IdleHigh => Pull::Up,
@@ -118,6 +122,7 @@ pub struct Spi<'d, M: PeriMode> {
     rx_dma: Option<ChannelAndRequest<'d>>,
     _phantom: PhantomData<M>,
     current_word_size: word_impl::Config,
+    rise_fall_speed: Speed,
 }
 
 impl<'d, M: PeriMode> Spi<'d, M> {
@@ -140,6 +145,7 @@ impl<'d, M: PeriMode> Spi<'d, M> {
             rx_dma,
             current_word_size: <u8 as SealedWord>::CONFIG,
             _phantom: PhantomData,
+            rise_fall_speed: config.rise_fall_speed,
         };
         this.enable_and_init(config);
         this
@@ -243,6 +249,17 @@ impl<'d, M: PeriMode> Spi<'d, M> {
 
         let br = compute_baud_rate(self.kernel_clock, config.frequency);
 
+        #[cfg(gpio_v2)]
+        {
+            self.rise_fall_speed = config.rise_fall_speed;
+            if let Some(sck) = self.sck.as_ref() {
+                sck.set_speed(config.rise_fall_speed);
+            }
+            if let Some(mosi) = self.mosi.as_ref() {
+                mosi.set_speed(config.rise_fall_speed);
+            }
+        }
+
         #[cfg(any(spi_v1, spi_f1, spi_v2))]
         self.info.regs.cr1().modify(|w| {
             w.set_cpha(cpha);
@@ -308,11 +325,11 @@ impl<'d, M: PeriMode> Spi<'d, M> {
             bit_order,
             frequency,
             miso_pull,
+            rise_fall_speed: self.rise_fall_speed,
         }
     }
 
-    /// Set SPI word size. Disables SPI if needed, you have to enable it back yourself.
-    fn set_word_size(&mut self, word_size: word_impl::Config) {
+    pub(crate) fn set_word_size(&mut self, word_size: word_impl::Config) {
         if self.current_word_size == word_size {
             return;
         }
@@ -442,7 +459,7 @@ impl<'d> Spi<'d, Blocking> {
         Self::new_inner(
             peri,
             new_pin!(sck, config.sck_af()),
-            new_pin!(mosi, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(mosi, AfType::output(OutputType::PushPull, config.rise_fall_speed)),
             new_pin!(miso, AfType::input(config.miso_pull)),
             None,
             None,
@@ -478,7 +495,7 @@ impl<'d> Spi<'d, Blocking> {
         Self::new_inner(
             peri,
             new_pin!(sck, config.sck_af()),
-            new_pin!(mosi, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(mosi, AfType::output(OutputType::PushPull, config.rise_fall_speed)),
             None,
             None,
             None,
@@ -497,7 +514,7 @@ impl<'d> Spi<'d, Blocking> {
         Self::new_inner(
             peri,
             None,
-            new_pin!(mosi, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(mosi, AfType::output(OutputType::PushPull, config.rise_fall_speed)),
             None,
             None,
             None,
@@ -520,7 +537,7 @@ impl<'d> Spi<'d, Async> {
         Self::new_inner(
             peri,
             new_pin!(sck, config.sck_af()),
-            new_pin!(mosi, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(mosi, AfType::output(OutputType::PushPull, config.rise_fall_speed)),
             new_pin!(miso, AfType::input(config.miso_pull)),
             new_dma!(tx_dma),
             new_dma!(rx_dma),
@@ -562,7 +579,7 @@ impl<'d> Spi<'d, Async> {
         Self::new_inner(
             peri,
             new_pin!(sck, config.sck_af()),
-            new_pin!(mosi, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(mosi, AfType::output(OutputType::PushPull, config.rise_fall_speed)),
             None,
             new_dma!(tx_dma),
             None,
@@ -582,7 +599,7 @@ impl<'d> Spi<'d, Async> {
         Self::new_inner(
             peri,
             None,
-            new_pin!(mosi, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(mosi, AfType::output(OutputType::PushPull, config.rise_fall_speed)),
             None,
             new_dma!(tx_dma),
             None,
@@ -895,7 +912,7 @@ fn compute_frequency(kernel_clock: Hertz, br: Br) -> Hertz {
     kernel_clock / div
 }
 
-trait RegsExt {
+pub(crate) trait RegsExt {
     fn tx_ptr<W>(&self) -> *mut W;
     fn rx_ptr<W>(&self) -> *mut W;
 }
@@ -983,7 +1000,7 @@ fn spin_until_rx_ready(regs: Regs) -> Result<(), Error> {
     }
 }
 
-fn flush_rx_fifo(regs: Regs) {
+pub(crate) fn flush_rx_fifo(regs: Regs) {
     #[cfg(not(any(spi_v3, spi_v4, spi_v5)))]
     while regs.sr().read().rxne() {
         #[cfg(not(spi_v2))]
@@ -997,7 +1014,7 @@ fn flush_rx_fifo(regs: Regs) {
     }
 }
 
-fn set_txdmaen(regs: Regs, val: bool) {
+pub(crate) fn set_txdmaen(regs: Regs, val: bool) {
     #[cfg(not(any(spi_v3, spi_v4, spi_v5)))]
     regs.cr2().modify(|reg| {
         reg.set_txdmaen(val);
@@ -1008,7 +1025,7 @@ fn set_txdmaen(regs: Regs, val: bool) {
     });
 }
 
-fn set_rxdmaen(regs: Regs, val: bool) {
+pub(crate) fn set_rxdmaen(regs: Regs, val: bool) {
     #[cfg(not(any(spi_v3, spi_v4, spi_v5)))]
     regs.cr2().modify(|reg| {
         reg.set_rxdmaen(val);
@@ -1169,7 +1186,7 @@ impl<'d, W: Word> embedded_hal_async::spi::SpiBus<W> for Spi<'d, Async> {
     }
 }
 
-trait SealedWord {
+pub(crate) trait SealedWord {
     const CONFIG: word_impl::Config;
 }
 
