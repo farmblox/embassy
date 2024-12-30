@@ -195,6 +195,7 @@ pub(crate) unsafe fn init(config: Config) {
     #[cfg(any(stm32l4, stm32l5, stm32wb, stm32wl))]
     if config.ls.lse.map(|x| x.frequency) == Some(Hertz(32_768)) {
         RCC.cr().modify(|w| w.set_msipllen(true));
+        info!("Enabled MSI PLL");
     }
 
     let hsi = config.hsi.then(|| {
@@ -445,20 +446,41 @@ fn msirange_to_hertz(range: MSIRange) -> Hertz {
 
 #[cfg(any(stm32l4, stm32l5, stm32wb, stm32wl, stm32u0))]
 fn msirange_to_hertz(range: MSIRange) -> Hertz {
-    match range {
-        MSIRange::RANGE100K => Hertz(100_000),
-        MSIRange::RANGE200K => Hertz(200_000),
-        MSIRange::RANGE400K => Hertz(400_000),
-        MSIRange::RANGE800K => Hertz(800_000),
-        MSIRange::RANGE1M => Hertz(1_000_000),
-        MSIRange::RANGE2M => Hertz(2_000_000),
-        MSIRange::RANGE4M => Hertz(4_000_000),
-        MSIRange::RANGE8M => Hertz(8_000_000),
-        MSIRange::RANGE16M => Hertz(16_000_000),
-        MSIRange::RANGE24M => Hertz(24_000_000),
-        MSIRange::RANGE32M => Hertz(32_000_000),
-        MSIRange::RANGE48M => Hertz(48_000_000),
-        _ => unreachable!(),
+    #[cfg(not(msi_pllmode))]
+    {
+        match range {
+            MSIRange::RANGE100K => Hertz(100_000),
+            MSIRange::RANGE200K => Hertz(200_000),
+            MSIRange::RANGE400K => Hertz(400_000),
+            MSIRange::RANGE800K => Hertz(800_000),
+            MSIRange::RANGE1M => Hertz(1_000_000),
+            MSIRange::RANGE2M => Hertz(2_000_000),
+            MSIRange::RANGE4M => Hertz(4_000_000),
+            MSIRange::RANGE8M => Hertz(8_000_000),
+            MSIRange::RANGE16M => Hertz(16_000_000),
+            MSIRange::RANGE24M => Hertz(24_000_000),
+            MSIRange::RANGE32M => Hertz(32_000_000),
+            MSIRange::RANGE48M => Hertz(48_000_000),
+            _ => unreachable!(),
+        }
+    }
+    #[cfg(msi_pllmode)]
+    {
+        match range {
+            MSIRange::RANGE100K => Hertz(98_304),
+            MSIRange::RANGE200K => Hertz(196_608),
+            MSIRange::RANGE400K => Hertz(393_216),
+            MSIRange::RANGE800K => Hertz(786_432),
+            MSIRange::RANGE1M => Hertz(1_016_000),
+            MSIRange::RANGE2M => Hertz(1_999_999),
+            MSIRange::RANGE4M => Hertz(3_998_000),
+            MSIRange::RANGE8M => Hertz(7_995_000),
+            MSIRange::RANGE16M => Hertz(15_991_000),
+            MSIRange::RANGE24M => Hertz(23_986_000),
+            MSIRange::RANGE32M => Hertz(32_014_000),
+            MSIRange::RANGE48M => Hertz(48_005_000),
+            _ => unreachable!(),
+        }
     }
 }
 
