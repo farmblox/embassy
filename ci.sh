@@ -178,7 +178,7 @@ cargo batch \
     --- build --release --manifest-path cyw43/Cargo.toml --target thumbv6m-none-eabi --features 'log,firmware-logs,bluetooth' \
     --- build --release --manifest-path cyw43/Cargo.toml --target thumbv6m-none-eabi --features 'defmt,firmware-logs,bluetooth' \
     --- build --release --manifest-path cyw43-pio/Cargo.toml --target thumbv6m-none-eabi --features 'embassy-rp/rp2040' \
-    --- build --release --manifest-path cyw43-pio/Cargo.toml --target thumbv6m-none-eabi --features 'embassy-rp/rp2040,overclock' \
+    --- build --release --manifest-path cyw43-pio/Cargo.toml --target thumbv6m-none-eabi --features 'embassy-rp/rp2040' \
     --- build --release --manifest-path embassy-boot-nrf/Cargo.toml --target thumbv7em-none-eabi --features embassy-nrf/nrf52840 \
     --- build --release --manifest-path embassy-boot-nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf9160-ns \
     --- build --release --manifest-path embassy-boot-nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf9120-ns \
@@ -186,6 +186,15 @@ cargo batch \
     --- build --release --manifest-path embassy-boot-nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf9161-ns \
     --- build --release --manifest-path embassy-boot-rp/Cargo.toml --target thumbv6m-none-eabi --features embassy-rp/rp2040 \
     --- build --release --manifest-path embassy-boot-stm32/Cargo.toml --target thumbv7em-none-eabi --features embassy-stm32/stm32l496zg \
+    --- build --release --manifest-path embassy-usb/Cargo.toml --target thumbv6m-none-eabi --no-default-features \
+    --- build --release --manifest-path embassy-usb/Cargo.toml --target thumbv6m-none-eabi \
+    --- build --release --manifest-path embassy-usb/Cargo.toml --target thumbv6m-none-eabi --features log \
+    --- build --release --manifest-path embassy-usb/Cargo.toml --target thumbv6m-none-eabi --features defmt \
+    --- build --release --manifest-path embassy-usb/Cargo.toml --target thumbv6m-none-eabi --features usbd-hid \
+    --- build --release --manifest-path embassy-usb/Cargo.toml --target thumbv6m-none-eabi --features max-interface-count-1 \
+    --- build --release --manifest-path embassy-usb/Cargo.toml --target thumbv6m-none-eabi --features max-interface-count-8 \
+    --- build --release --manifest-path embassy-usb/Cargo.toml --target thumbv6m-none-eabi --features max-handler-count-8 \
+    --- build --release --manifest-path embassy-usb/Cargo.toml --target thumbv6m-none-eabi --features max-handler-count-8 \
     --- build --release --manifest-path docs/examples/basic/Cargo.toml --target thumbv7em-none-eabi \
     --- build --release --manifest-path docs/examples/layer-by-layer/blinky-pac/Cargo.toml --target thumbv7em-none-eabi \
     --- build --release --manifest-path docs/examples/layer-by-layer/blinky-hal/Cargo.toml --target thumbv7em-none-eabi \
@@ -222,6 +231,7 @@ cargo batch \
     --- build --release --manifest-path examples/stm32l0/Cargo.toml --target thumbv6m-none-eabi --out-dir out/examples/stm32l0 \
     --- build --release --manifest-path examples/stm32l1/Cargo.toml --target thumbv7m-none-eabi --out-dir out/examples/stm32l1 \
     --- build --release --manifest-path examples/stm32l4/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32l4 \
+    --- build --release --manifest-path examples/stm32l432/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32l432 \
     --- build --release --manifest-path examples/stm32l5/Cargo.toml --target thumbv8m.main-none-eabihf --out-dir out/examples/stm32l5 \
     --- build --release --manifest-path examples/stm32u0/Cargo.toml --target thumbv6m-none-eabi --out-dir out/examples/stm32u0 \
     --- build --release --manifest-path examples/stm32u5/Cargo.toml --target thumbv8m.main-none-eabihf --out-dir out/examples/stm32u5 \
