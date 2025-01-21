@@ -203,6 +203,17 @@ impl<'d, M: Mode> I2c<'d, M> {
         self.info.rcc.enable_and_reset();
         self.init(freq, config);
     }
+    
+    /// Enable clocks to the peripheral using RCC
+    pub fn enable(&mut self) {
+        self.info.rcc.enable();
+    }
+
+    /// Disable clocks to the peripheral using RCC
+    pub fn disable(&mut self) {
+        self.info.rcc.disable();
+    }
+
 
     fn timeout(&self) -> Timeout {
         Timeout {

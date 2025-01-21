@@ -1467,6 +1467,16 @@ impl<'d, M: Mode> Uart<'d, M> {
         Ok(())
     }
 
+    /// Enable clocks to the peripheral using RCC
+    pub fn enable(&mut self) {
+        self.rx.info.rcc.enable();
+    }
+
+    /// Disable clocks to the peripheral using RCC
+    pub fn disable(&mut self) {
+        self.rx.info.rcc.disable();
+    }
+
     /// Perform a blocking write
     pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         self.tx.blocking_write(buffer)
