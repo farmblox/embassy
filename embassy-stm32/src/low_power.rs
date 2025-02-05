@@ -102,6 +102,11 @@ pub fn stop_with_rtc(rtc: &'static Rtc) {
     unsafe { EXECUTOR.as_mut().unwrap() }.stop_with_rtc(rtc)
 }
 
+/// Configure STOP mode with an RCC configuration to apply on each wake.
+pub fn set_rcc_configuration(rcc_config: crate::rcc::Config) {
+    unsafe { EXECUTOR.as_mut().unwrap() }.set_rcc_configuration(rcc_config);
+}
+
 /// Get whether the core is ready to enter the given stop mode.
 ///
 /// This will return false if some peripheral driver is in use that
@@ -124,10 +129,10 @@ pub enum StopMode {
     Stop2,
 }
 
-#[cfg(any(stm32l4, stm32l5, stm32u5, stm32u0))]
+#[cfg(any(stm32l4, stm32l5, stm32u5, stm32u0, stm32wl))]
 use stm32_metapac::pwr::vals::Lpms;
 
-#[cfg(any(stm32l4, stm32l5, stm32u5, stm32u0))]
+#[cfg(any(stm32l4, stm32l5, stm32u5, stm32u0, stm32wl))]
 impl Into<Lpms> for StopMode {
     fn into(self) -> Lpms {
         match self {
@@ -151,6 +156,7 @@ pub struct Executor {
     inner: raw::Executor,
     not_send: PhantomData<*mut ()>,
     scb: SCB,
+    rcc_config_on_wake: Option<crate::rcc::Config>,
     time_driver: &'static RtcDriver,
 }
 
@@ -164,6 +170,7 @@ impl Executor {
                 inner: raw::Executor::new(THREAD_PENDER as *mut ()),
                 not_send: PhantomData,
                 scb: cortex_m::Peripherals::steal().SCB,
+                rcc_config_on_wake: None,
                 time_driver: get_driver(),
             });
 
@@ -175,6 +182,12 @@ impl Executor {
 
     unsafe fn on_wakeup_irq(&mut self) {
         self.time_driver.resume_time();
+        if let Some(rcc_config) = self.rcc_config_on_wake {
+            trace!("low power: initializing rcc");
+            // per Table 44 of RM0453, all clocks are OFF except HSI16, LSI and LSE when exiting stop mode
+            // re-init the RCC configuration for all the peripherals.
+            crate::rcc::init(rcc_config);
+        }
         trace!("low power: resume");
     }
 
@@ -184,6 +197,10 @@ impl Executor {
         rtc.enable_wakeup_line();
 
         trace!("low power: stop with rtc configured");
+    }
+
+    pub(self) fn set_rcc_configuration(&mut self, rcc_config: crate::rcc::Config) {
+        self.rcc_config_on_wake = Some(rcc_config);
     }
 
     fn stop_mode(&self) -> Option<StopMode> {
@@ -198,7 +215,7 @@ impl Executor {
 
     #[allow(unused_variables)]
     fn configure_stop(&mut self, stop_mode: StopMode) {
-        #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u0))]
+        #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u0, stm32wl))]
         crate::pac::PWR.cr1().modify(|m| m.set_lpms(stop_mode.into()));
         #[cfg(stm32h5)]
         crate::pac::PWR.pmcr().modify(|v| {

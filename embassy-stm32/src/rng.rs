@@ -185,6 +185,16 @@ impl<'d, T: Instance> Rng<'d, T> {
 
         Ok(())
     }
+
+    /// Disable clocks to the peripheral using RCC
+    pub fn disable(&mut self) {
+        rcc::disable::<T>();
+    }
+
+    /// Enable clocks to the peripheral using RCC
+    pub fn enable(&mut self) {
+        rcc::enable::<T>();
+    }
 }
 
 impl<'d, T: Instance> RngCore for Rng<'d, T> {

@@ -423,3 +423,7 @@ pub fn enable_and_reset<T: RccPeripheral>() {
 pub fn disable<T: RccPeripheral>() {
     T::RCC_INFO.disable();
 }
+
+pub fn enable<T: RccPeripheral>() {
+    T::RCC_INFO.enable();
+}

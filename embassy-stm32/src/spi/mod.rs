@@ -151,6 +151,16 @@ impl<'d, M: PeriMode> Spi<'d, M> {
         this
     }
 
+    /// Enable clocks to the peripheral via RCC.
+    pub fn enable(&mut self) {
+        self.info.rcc.enable();
+    }
+
+    /// Disable clocks to the peripheral via RCC.
+    pub fn disable(&mut self) {
+        self.info.rcc.disable();
+    }
+
     fn enable_and_init(&mut self, config: Config) {
         let br = compute_baud_rate(self.kernel_clock, config.frequency);
         let cpha = config.raw_phase();
