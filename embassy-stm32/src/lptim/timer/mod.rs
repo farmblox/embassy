@@ -32,12 +32,16 @@ impl<'d, T: Instance> Timer<'d, T> {
 
     /// Enable the timer.
     pub fn enable(&self) {
+        T::RCC_INFO.enable();
         T::regs().cr().modify(|w| w.set_enable(true));
+        while !T::regs().cr().read().enable() {}
     }
 
     /// Disable the timer.
     pub fn disable(&self) {
         T::regs().cr().modify(|w| w.set_enable(false));
+        while T::regs().cr().read().enable() {}
+        T::RCC_INFO.disable();
     }
 
     /// Start the timer in single pulse mode.
@@ -49,6 +53,27 @@ impl<'d, T: Instance> Timer<'d, T> {
     pub fn continuous_mode_start(&self) {
         T::regs().cr().modify(|w| w.set_cntstrt(true));
     }
+
+    // This doesn't work yet
+    // /// Set how long before the timer fires.
+    // pub fn set_interval(&self, interval: embassy_time::Duration) {
+    //     // TODO: Add support for dealing with the multiple possible clock sources for LSE. This is fine for most boards only if the mux is set for that clock. Really the RCC needs to have the correct value.
+    //     let pclk_cycles_per_ms: f32 = 32.768;
+
+    //     let interval_ms = interval.as_millis();
+
+    //     info!("Setting for ms: {}",interval_ms );
+
+    //     let pclk_ticks_per_timer_period = (interval_ms as f32 * pclk_cycles_per_ms) as u32;
+
+    //     info!("Setting for ticks: {}", pclk_ticks_per_timer_period);
+
+    //     let psc = Prescaler::from_ticks(pclk_ticks_per_timer_period);
+    //     let arr = psc.scale_down(pclk_ticks_per_timer_period);
+
+    //     T::regs().cfgr().modify(|r| r.set_presc((&psc).into()));
+    //     T::regs().arr().modify(|r| r.set_arr(arr.into()));
+    // }
 
     /// Set the frequency of how many times per second the timer counts up to the max value or down to 0.
     pub fn set_frequency(&self, frequency: Hertz) {
