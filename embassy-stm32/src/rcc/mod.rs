@@ -224,11 +224,6 @@ impl RccInfo {
 
     // TODO: should this be `unsafe`?
     pub(crate) fn enable_and_reset_with_cs(&self, _cs: CriticalSection) {
-        // get status of the the xxxEN bit
-        let enable_ptr = self.enable_ptr();
-        let enable_reg_val = unsafe { enable_ptr.read_volatile() };
-        let peripheral_already_enabled = enable_reg_val.get_bit(self.enable_bit.into());
-
         if self.refcount_idx_or_0xff != 0xff {
             let refcount_idx = self.refcount_idx_or_0xff as usize;
 
@@ -248,15 +243,21 @@ impl RccInfo {
         }
 
         #[cfg(feature = "low-power")]
-        if !peripheral_already_enabled {
-            match self.stop_mode {
-                StopMode::Standby => {}
-                StopMode::Stop2 => unsafe {
-                    REFCOUNT_STOP2 += 1;
-                },
-                StopMode::Stop1 => unsafe {
-                    REFCOUNT_STOP1 += 1;
-                },
+        {
+            // get status of the the xxxEN bit
+            let enable_ptr = self.enable_ptr();
+            let enable_reg_val = unsafe { enable_ptr.read_volatile() };
+            let peripheral_already_enabled = enable_reg_val.get_bit(self.enable_bit.into());
+            if !peripheral_already_enabled {
+                match self.stop_mode {
+                    StopMode::Standby => {}
+                    StopMode::Stop2 => unsafe {
+                        REFCOUNT_STOP2 += 1;
+                    },
+                    StopMode::Stop1 => unsafe {
+                        REFCOUNT_STOP1 += 1;
+                    },
+                }
             }
         }
 
