@@ -561,6 +561,16 @@ impl<'d, M: Mode> UartTx<'d, M> {
     pub fn set_baudrate(&self, baudrate: u32) -> Result<(), ConfigError> {
         set_baudrate(self.info, self.kernel_clock, baudrate)
     }
+
+    /// Enable clocks to the peripheral using RCC
+    pub fn enable(&mut self) {
+        self.info.rcc.enable();
+    }
+
+    /// Disable clocks to the peripheral using RCC
+    pub fn disable(&mut self) {
+        self.info.rcc.disable();
+    }
 }
 
 /// Wait until transmission complete
