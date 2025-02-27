@@ -46,13 +46,15 @@ impl core::ops::Sub for RtcInstant {
             self.second
         };
 
-        let psc = RTC::regs().prer().read().prediv_s() as u32;
+        let psc = RTC::regs().prer().read().prediv_s() as u64;
 
-        let self_ticks = second as u32 * (psc + 1) + (psc - self.subsecond as u32);
-        let other_ticks = rhs.second as u32 * (psc + 1) + (psc - rhs.subsecond as u32);
+        let self_ticks = second as u64 * (psc + 1) + (psc - self.subsecond as u64);
+        let other_ticks = rhs.second as u64 * (psc + 1) + (psc - rhs.subsecond as u64);
         let rtc_ticks = self_ticks - other_ticks;
 
-        Duration::from_ticks(((rtc_ticks * TICK_HZ as u32) / (psc + 1)) as u64)
+        let converted_ticks = (rtc_ticks as u64 * TICK_HZ) / (psc + 1);
+
+        Duration::from_ticks(converted_ticks)
     }
 }
 
