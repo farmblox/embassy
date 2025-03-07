@@ -181,14 +181,22 @@ impl Executor {
     }
 
     unsafe fn on_wakeup_irq(&mut self) {
+        trace!("RTC wakeup detected");
         self.time_driver.resume_time();
-        if let Some(rcc_config) = self.rcc_config_on_wake {
-            trace!("low power: initializing rcc");
-            // per Table 44 of RM0453, all clocks are OFF except HSI16, LSI and LSE when exiting stop mode
-            // re-init the RCC configuration for all the peripherals.
-            crate::rcc::init(rcc_config);
+    }
+
+    #[inline]
+    unsafe fn start_time(&self) {
+        if crate::pac::PWR.extscr().read().c1stop2f() {
+            crate::pac::PWR.extscr().modify(|x| x.set_c1cssf(true));
+            self.time_driver.resume_time();
+            if let Some(rcc_config) = self.rcc_config_on_wake {
+                // per Table 44 of RM0453, all clocks are OFF except HSI16, LSI and LSE when exiting stop mode
+                // re-init the RCC configuration for all the peripherals.
+                crate::rcc::init(rcc_config);
+            }
+            info!("System has been in STOP2, re-initialized RCC and resumed time")
         }
-        trace!("low power: resume");
     }
 
     pub(self) fn stop_with_rtc(&mut self, rtc: &'static Rtc) {
@@ -230,24 +238,31 @@ impl Executor {
 
         compiler_fence(Ordering::SeqCst);
 
-        let stop_mode = self.stop_mode();
+        match self.stop_mode() {
+            None => {
+                // trace!("low power: not ready to stop");
+                return;
+            }
+            Some(StopMode::Stop1) => {
+                // trace!("low power: configuring stop 1");
+                if self.time_driver.pause_time().is_err() {
+                    trace!("low power: failed to pause time");
+                    return;
+                }
+                self.configure_stop(StopMode::Stop1);
+                // trace!("low power: configured stop 1");
+            }
+            Some(StopMode::Stop2) => {
+                // trace!("low power: configuring stop 2");
+                if self.time_driver.pause_time().is_err() {
+                    trace!("low power: failed to pause time");
+                    return;
+                }
+                self.configure_stop(StopMode::Stop2);
+                // trace!("low power: configured stop 2");
+            }
+        };
 
-        if stop_mode.is_none() {
-            trace!("low power: not ready to stop");
-            return;
-        }
-
-        if self.time_driver.pause_time().is_err() {
-            trace!("low power: failed to pause time");
-            return;
-        }
-
-        let stop_mode = stop_mode.unwrap();
-        match stop_mode {
-            StopMode::Stop1 => trace!("low power: stop 1"),
-            StopMode::Stop2 => trace!("low power: stop 2"),
-        }
-        self.configure_stop(stop_mode);
 
         #[cfg(not(feature = "low-power-debug-with-sleep"))]
         self.scb.set_sleepdeep();
@@ -280,6 +295,7 @@ impl Executor {
                 executor.inner.poll();
                 self.configure_pwr();
                 asm!("wfe");
+                self.start_time();
             };
         }
     }
