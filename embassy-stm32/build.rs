@@ -296,6 +296,8 @@ fn main() {
                 "Bank1"
             } else if region.name.starts_with("BANK_2") {
                 "Bank2"
+            } else if region.name == "OTP" {
+                "Otp"
             } else {
                 continue;
             }
@@ -876,6 +878,7 @@ fn main() {
         (("ltdc", "B7"), quote!(crate::ltdc::B7Pin)),
         (("usb", "DP"), quote!(crate::usb::DpPin)),
         (("usb", "DM"), quote!(crate::usb::DmPin)),
+        (("usb", "SOF"), quote!(crate::usb::SofPin)),
         (("otg", "DP"), quote!(crate::usb::DpPin)),
         (("otg", "DM"), quote!(crate::usb::DmPin)),
         (("otg", "ULPI_CK"), quote!(crate::usb::UlpiClkPin)),
