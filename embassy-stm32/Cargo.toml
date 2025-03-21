@@ -123,7 +123,6 @@ defmt = [
     "embassy-usb-synopsys-otg/defmt",
 ]
 
-msi_pllmode = []
 exti = []
 low-power = [ "dep:embassy-executor", "embassy-executor?/arch-cortex-m", "time" ]
 low-power-debug-with-sleep = []

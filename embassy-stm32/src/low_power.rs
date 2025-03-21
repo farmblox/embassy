@@ -60,7 +60,6 @@ use core::sync::atomic::{compiler_fence, Ordering};
 
 use cortex_m::peripheral::SCB;
 use embassy_executor::*;
-use embassy_time::{block_for, Duration};
 
 use crate::interrupt;
 use crate::time_driver::{get_driver, RtcDriver};
@@ -182,49 +181,17 @@ impl Executor {
     }
 
     unsafe fn on_wakeup_irq(&mut self) {
-        trace!("RTC wakeup detected");
-        self.time_driver.resume_time();
-    }
-
-    #[inline]
-    unsafe fn start_time(&self) {
-
-        #[cfg(stm32wl)]
-        if crate::pac::PWR.extscr().read().c1stop2f() {
-            crate::pac::PWR.extscr().modify(|x| x.set_c1cssf(true));
-            self.time_driver.resume_time();
-            if let Some(rcc_config) = self.rcc_config_on_wake {
-                // per Table 44 of RM0453, all clocks are OFF except HSI16, LSI and LSE when exiting stop mode
-                // re-init the RCC configuration for all the peripherals.
-                crate::rcc::init(rcc_config);
-                block_for(Duration::from_micros(10));
-            }
-            info!("System has been in STOP2, re-initialized RCC and resumed time")
-        }
-
-        #[cfg(not(stm32wl))]
-        self.time_driver.resume_time();
         if let Some(rcc_config) = self.rcc_config_on_wake {
-            // per Table 44 of RM0453, all clocks are OFF except HSI16, LSI and LSE when exiting stop mode
-            // re-init the RCC configuration for all the peripherals.
             crate::rcc::init(rcc_config);
-            block_for(Duration::from_micros(10));
         }
+        self.time_driver.resume_time();
+        trace!("low power: resume");
     }
 
     pub(self) fn stop_with_rtc(&mut self, rtc: &'static Rtc) {
         self.time_driver.set_rtc(rtc);
 
         rtc.enable_wakeup_line();
-
-        // Manually enable LPTIM1 wakeup line as well
-        // TODO: Don't hardcode the interrupt number, it's only correct for the WL!
-        #[cfg(stm32wl)]
-        {
-            use crate::pac::EXTI;
-            EXTI.rtsr(0).modify(|w| w.set_line(29, true));
-            EXTI.imr(0).modify(|w| w.set_line(29, true));
-        }
 
         trace!("low power: stop with rtc configured");
     }
@@ -260,30 +227,24 @@ impl Executor {
 
         compiler_fence(Ordering::SeqCst);
 
-        match self.stop_mode() {
-            None => {
-                // trace!("low power: not ready to stop");
-                return;
-            }
-            Some(StopMode::Stop1) => {
-                // trace!("low power: configuring stop 1");
-                if self.time_driver.pause_time().is_err() {
-                    trace!("low power: failed to pause time");
-                    return;
-                }
-                self.configure_stop(StopMode::Stop1);
-                // trace!("low power: configured stop 1");
-            }
-            Some(StopMode::Stop2) => {
-                // trace!("low power: configuring stop 2");
-                if self.time_driver.pause_time().is_err() {
-                    trace!("low power: failed to pause time");
-                    return;
-                }
-                self.configure_stop(StopMode::Stop2);
-                // trace!("low power: configured stop 2");
-            }
-        };
+        let stop_mode = self.stop_mode();
+
+        if stop_mode.is_none() {
+            trace!("low power: not ready to stop");
+            return;
+        }
+
+        if self.time_driver.pause_time().is_err() {
+            trace!("low power: failed to pause time");
+            return;
+        }
+
+        let stop_mode = stop_mode.unwrap();
+        match stop_mode {
+            StopMode::Stop1 => trace!("low power: stop 1"),
+            StopMode::Stop2 => trace!("low power: stop 2"),
+        }
+        self.configure_stop(stop_mode);
 
         // const SCB_SCR_SEVONPEND: u32 = 0x1 << 4;
         // unsafe {
@@ -320,7 +281,6 @@ impl Executor {
                 executor.inner.poll();
                 self.configure_pwr();
                 asm!("wfe");
-                self.start_time();
             };
         }
     }
