@@ -701,7 +701,7 @@ impl<'d> UartRx<'d, Async> {
     }
 
     /// Initiate an asynchronous read with idle line detection enabled
-    /// The idle line detection timeout is in bit-durations since the last start bit (for a 2-byte holdoff, 
+    /// The idle line detection timeout is in bit-durations since the last start bit (for a 2-byte holdoff,
     /// use (1+2)*11 = 33 bit times; 11 bits for the last byte and 22 bits for the holdoff)
     pub async fn read_until_idle(&mut self, buffer: &mut [u8], idle_line_rtor: u32) -> Result<usize, Error> {
         self.inner_read(buffer, true, idle_line_rtor).await
@@ -900,7 +900,12 @@ impl<'d> UartRx<'d, Async> {
         r
     }
 
-    async fn inner_read(&mut self, buffer: &mut [u8], enable_idle_line_detection: bool, idle_line_rtor: u32) -> Result<usize, Error> {
+    async fn inner_read(
+        &mut self,
+        buffer: &mut [u8],
+        enable_idle_line_detection: bool,
+        idle_line_rtor: u32,
+    ) -> Result<usize, Error> {
         if buffer.is_empty() {
             return Ok(0);
         } else if buffer.len() > 0xFFFF {
@@ -910,13 +915,25 @@ impl<'d> UartRx<'d, Async> {
         let buffer_len = buffer.len();
 
         // wait for DMA to complete or IDLE line detection if requested
-        let res = self.inner_read_run(buffer, enable_idle_line_detection, idle_line_rtor).await;
+        let res = self
+            .inner_read_run(buffer, enable_idle_line_detection, idle_line_rtor)
+            .await;
 
         match res {
             Ok(ReadCompletionEvent::DmaCompleted) => Ok(buffer_len),
             Ok(ReadCompletionEvent::Idle(n)) => Ok(n),
             Err(e) => Err(e),
         }
+    }
+
+    /// Enable clocks to the peripheral using RCC
+    pub fn enable(&mut self) {
+        self.info.rcc.enable();
+    }
+
+    /// Disable clocks to the peripheral using RCC
+    pub fn disable(&mut self) {
+        self.info.rcc.disable();
     }
 }
 
