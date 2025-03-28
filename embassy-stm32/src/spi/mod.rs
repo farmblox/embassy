@@ -6,7 +6,6 @@ use core::ptr;
 
 use embassy_embedded_hal::SetConfig;
 use embassy_futures::join::join;
-use embassy_hal_internal::PeripheralRef;
 pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 
 use crate::dma::{word, ChannelAndRequest};
@@ -15,7 +14,7 @@ use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::spi::{regs, vals, Spi as Regs};
 use crate::rcc::{RccInfo, SealedRccPeripheral};
 use crate::time::Hertz;
-use crate::Peripheral;
+use crate::Peri;
 
 /// SPI error.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -130,9 +129,9 @@ impl Config {
 pub struct Spi<'d, M: PeriMode> {
     pub(crate) info: &'static Info,
     kernel_clock: Hertz,
-    sck: Option<PeripheralRef<'d, AnyPin>>,
-    mosi: Option<PeripheralRef<'d, AnyPin>>,
-    miso: Option<PeripheralRef<'d, AnyPin>>,
+    sck: Option<Peri<'d, AnyPin>>,
+    mosi: Option<Peri<'d, AnyPin>>,
+    miso: Option<Peri<'d, AnyPin>>,
     tx_dma: Option<ChannelAndRequest<'d>>,
     rx_dma: Option<ChannelAndRequest<'d>>,
     _phantom: PhantomData<M>,
@@ -142,10 +141,10 @@ pub struct Spi<'d, M: PeriMode> {
 
 impl<'d, M: PeriMode> Spi<'d, M> {
     fn new_inner<T: Instance>(
-        _peri: impl Peripheral<P = T> + 'd,
-        sck: Option<PeripheralRef<'d, AnyPin>>,
-        mosi: Option<PeripheralRef<'d, AnyPin>>,
-        miso: Option<PeripheralRef<'d, AnyPin>>,
+        _peri: Peri<'d, T>,
+        sck: Option<Peri<'d, AnyPin>>,
+        mosi: Option<Peri<'d, AnyPin>>,
+        miso: Option<Peri<'d, AnyPin>>,
         tx_dma: Option<ChannelAndRequest<'d>>,
         rx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
@@ -475,10 +474,10 @@ impl<'d, M: PeriMode> Spi<'d, M> {
 impl<'d> Spi<'d, Blocking> {
     /// Create a new blocking SPI driver.
     pub fn new_blocking<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
-        miso: impl Peripheral<P = impl MisoPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckPin<T>>,
+        mosi: Peri<'d, impl MosiPin<T>>,
+        miso: Peri<'d, impl MisoPin<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -494,9 +493,9 @@ impl<'d> Spi<'d, Blocking> {
 
     /// Create a new blocking SPI driver, in RX-only mode (only MISO pin, no MOSI).
     pub fn new_blocking_rxonly<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        miso: impl Peripheral<P = impl MisoPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckPin<T>>,
+        miso: Peri<'d, impl MisoPin<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -512,9 +511,9 @@ impl<'d> Spi<'d, Blocking> {
 
     /// Create a new blocking SPI driver, in TX-only mode (only MOSI pin, no MISO).
     pub fn new_blocking_txonly<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckPin<T>>,
+        mosi: Peri<'d, impl MosiPin<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -532,8 +531,8 @@ impl<'d> Spi<'d, Blocking> {
     ///
     /// This can be useful for bit-banging non-SPI protocols.
     pub fn new_blocking_txonly_nosck<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        mosi: Peri<'d, impl MosiPin<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -551,12 +550,12 @@ impl<'d> Spi<'d, Blocking> {
 impl<'d> Spi<'d, Async> {
     /// Create a new SPI driver.
     pub fn new<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
-        miso: impl Peripheral<P = impl MisoPin<T>> + 'd,
-        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
-        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckPin<T>>,
+        mosi: Peri<'d, impl MosiPin<T>>,
+        miso: Peri<'d, impl MisoPin<T>>,
+        tx_dma: Peri<'d, impl TxDma<T>>,
+        rx_dma: Peri<'d, impl RxDma<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -572,11 +571,11 @@ impl<'d> Spi<'d, Async> {
 
     /// Create a new SPI driver, in RX-only mode (only MISO pin, no MOSI).
     pub fn new_rxonly<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        miso: impl Peripheral<P = impl MisoPin<T>> + 'd,
-        #[cfg(any(spi_v1, spi_f1, spi_v2))] tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
-        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckPin<T>>,
+        miso: Peri<'d, impl MisoPin<T>>,
+        #[cfg(any(spi_v1, spi_f1, spi_v2))] tx_dma: Peri<'d, impl TxDma<T>>,
+        rx_dma: Peri<'d, impl RxDma<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -595,10 +594,10 @@ impl<'d> Spi<'d, Async> {
 
     /// Create a new SPI driver, in TX-only mode (only MOSI pin, no MISO).
     pub fn new_txonly<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
-        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckPin<T>>,
+        mosi: Peri<'d, impl MosiPin<T>>,
+        tx_dma: Peri<'d, impl TxDma<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -616,9 +615,9 @@ impl<'d> Spi<'d, Async> {
     ///
     /// This can be useful for bit-banging non-SPI protocols.
     pub fn new_txonly_nosck<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
-        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
+        peri: Peri<'d, T>,
+        mosi: Peri<'d, impl MosiPin<T>>,
+        tx_dma: Peri<'d, impl TxDma<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -635,9 +634,9 @@ impl<'d> Spi<'d, Async> {
     #[cfg(stm32wl)]
     /// Useful for on chip peripherals like SUBGHZ which are hardwired.
     pub fn new_subghz<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
-        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
+        peri: Peri<'d, T>,
+        tx_dma: Peri<'d, impl TxDma<T>>,
+        rx_dma: Peri<'d, impl RxDma<T>>,
     ) -> Self {
         // see RM0453 rev 1 section 7.2.13 page 291
         // The SUBGHZSPI_SCK frequency is obtained by PCLK3 divided by two.
@@ -654,7 +653,7 @@ impl<'d> Spi<'d, Async> {
 
     #[allow(dead_code)]
     pub(crate) fn new_internal<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
+        peri: Peri<'d, T>,
         tx_dma: Option<ChannelAndRequest<'d>>,
         rx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
@@ -849,7 +848,7 @@ impl<'d> Spi<'d, Async> {
         let rx_src = self.info.regs.rx_ptr();
         let rx_f = unsafe { self.rx_dma.as_mut().unwrap().read_raw(rx_src, read, Default::default()) };
 
-        let tx_dst = self.info.regs.tx_ptr();
+        let tx_dst: *mut W = self.info.regs.tx_ptr();
         let tx_f = unsafe {
             self.tx_dma
                 .as_mut()

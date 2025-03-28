@@ -8,21 +8,33 @@ pub(crate) mod fmt;
 pub mod gpio;
 pub mod timer;
 
+/// Operating modes for peripherals.
+pub mod mode {
+    trait SealedMode {}
+
+    /// Operating mode for a peripheral.
+    #[allow(private_bounds)]
+    pub trait Mode: SealedMode {}
+
+    /// Blocking mode.
+    pub struct Blocking;
+    impl SealedMode for Blocking {}
+    impl Mode for Blocking {}
+
+    /// Async mode.
+    pub struct Async;
+    impl SealedMode for Async {}
+    impl Mode for Async {}
+}
+
 #[cfg(feature = "_time-driver")]
 mod time_driver;
 
 // Interrupt group handlers.
 #[cfg_attr(feature = "mspm0c110x", path = "int_group/c110x.rs")]
-#[cfg_attr(feature = "mspm0g110x", path = "int_group/g110x.rs")]
-#[cfg_attr(feature = "mspm0g150x", path = "int_group/g150x.rs")]
-#[cfg_attr(feature = "mspm0g151x", path = "int_group/g151x.rs")]
-#[cfg_attr(feature = "mspm0g310x", path = "int_group/g310x.rs")]
 #[cfg_attr(feature = "mspm0g350x", path = "int_group/g350x.rs")]
 #[cfg_attr(feature = "mspm0g351x", path = "int_group/g351x.rs")]
-#[cfg_attr(feature = "mspm0l110x", path = "int_group/l110x.rs")]
-#[cfg_attr(feature = "mspm0l122x", path = "int_group/l122x.rs")]
 #[cfg_attr(feature = "mspm0l130x", path = "int_group/l130x.rs")]
-#[cfg_attr(feature = "mspm0l134x", path = "int_group/l134x.rs")]
 #[cfg_attr(feature = "mspm0l222x", path = "int_group/l222x.rs")]
 mod int_group;
 
@@ -38,7 +50,7 @@ pub(crate) mod _generated {
 // Reexports
 pub(crate) use _generated::gpio_pincm;
 pub use _generated::{peripherals, Peripherals};
-pub use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+pub use embassy_hal_internal::Peri;
 #[cfg(feature = "unstable-pac")]
 pub use mspm0_metapac as pac;
 #[cfg(not(feature = "unstable-pac"))]
