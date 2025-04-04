@@ -959,6 +959,16 @@ impl<'d> UartRx<'d, Blocking> {
             config,
         )
     }
+
+    /// Enable clocks to the peripheral using RCC
+    pub fn enable(&mut self) {
+        self.info.rcc.enable();
+    }
+
+    /// Disable clocks to the peripheral using RCC
+    pub fn disable(&mut self) {
+        self.info.rcc.disable();
+    }
 }
 
 impl<'d, M: Mode> UartRx<'d, M> {
