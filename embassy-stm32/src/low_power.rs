@@ -56,7 +56,7 @@
 
 use core::arch::asm;
 use core::marker::PhantomData;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{compiler_fence, AtomicBool, Ordering};
 
 use cortex_m::peripheral::SCB;
 use embassy_executor::*;
@@ -69,6 +69,9 @@ const THREAD_PENDER: usize = usize::MAX;
 use crate::rtc::Rtc;
 
 static mut EXECUTOR: Option<Executor> = None;
+
+/// Whether or not the uC should (actually) sleep after clearing the deep sleep bit in the system control block
+pub static SHOULD_SLEEP: AtomicBool = AtomicBool::new(true);
 
 #[cfg(not(stm32u0))]
 foreach_interrupt! {
@@ -226,6 +229,10 @@ impl Executor {
         self.scb.clear_sleepdeep();
 
         compiler_fence(Ordering::SeqCst);
+
+        if !SHOULD_SLEEP.load(core::sync::atomic::Ordering::Relaxed) {
+            return;
+        }
 
         let stop_mode = self.stop_mode();
 
