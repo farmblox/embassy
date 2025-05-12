@@ -13,10 +13,10 @@ use embassy_sync::waitqueue::AtomicWaker;
 use super::DePin;
 use super::{
     clear_interrupt_flags, configure, half_duplex_set_rx_tx_before_write, rdr, reconfigure, send_break, set_baudrate,
-    sr, tdr, Config, ConfigError, CtsPin, Duplex, Error, HalfDuplexConfig, HalfDuplexReadback, Info, Instance, Regs,
-    RtsPin, RxPin, TxPin,
+    sr, tdr, Config, ConfigError, CtsPin, Duplex, Error, HalfDuplexReadback, Info, Instance, Regs, RtsPin, RxPin,
+    TxPin,
 };
-use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
+use crate::gpio::{AfType, AnyPin, Pull, SealedPin as _};
 use crate::interrupt::{self, InterruptExt};
 use crate::time::Hertz;
 
@@ -208,17 +208,17 @@ impl<'d> BufferedUart<'d> {
     /// Create a new bidirectional buffered UART driver
     pub fn new<T: Instance>(
         peri: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rx: Peri<'d, impl RxPin<T>>,
         tx: Peri<'d, impl TxPin<T>>,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(rx, AfType::input(config.rx_pull)),
-            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(rx, config.rx_af()),
+            new_pin!(tx, config.tx_af()),
             None,
             None,
             None,
@@ -231,21 +231,21 @@ impl<'d> BufferedUart<'d> {
     /// Create a new bidirectional buffered UART driver with request-to-send and clear-to-send pins
     pub fn new_with_rtscts<T: Instance>(
         peri: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rx: Peri<'d, impl RxPin<T>>,
         tx: Peri<'d, impl TxPin<T>>,
         rts: Peri<'d, impl RtsPin<T>>,
         cts: Peri<'d, impl CtsPin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(rx, AfType::input(Pull::None)),
-            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
-            new_pin!(rts, AfType::output(OutputType::PushPull, Speed::Medium)),
-            new_pin!(cts, AfType::input(Pull::None)),
+            new_pin!(rx, config.rx_af()),
+            new_pin!(tx, config.tx_af()),
+            new_pin!(rts, config.rts_config.af_type()),
+            new_pin!(cts, AfType::input(config.cts_pull)),
             None,
             tx_buffer,
             rx_buffer,
@@ -256,18 +256,18 @@ impl<'d> BufferedUart<'d> {
     /// Create a new bidirectional buffered UART driver with only the RTS pin as the DE pin
     pub fn new_with_rts_as_de<T: Instance>(
         peri: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rx: Peri<'d, impl RxPin<T>>,
         tx: Peri<'d, impl TxPin<T>>,
         rts: Peri<'d, impl RtsPin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(rx, AfType::input(Pull::None)),
-            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(rx, config.rx_af()),
+            new_pin!(tx, config.tx_af()),
             None,
             None,
             new_pin!(rts, AfType::input(Pull::None)), // RTS mapped used as DE
@@ -280,18 +280,18 @@ impl<'d> BufferedUart<'d> {
     /// Create a new bidirectional buffered UART driver with only the request-to-send pin
     pub fn new_with_rts<T: Instance>(
         peri: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rx: Peri<'d, impl RxPin<T>>,
         tx: Peri<'d, impl TxPin<T>>,
         rts: Peri<'d, impl RtsPin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(rx, AfType::input(Pull::None)),
-            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(rx, config.rx_af()),
+            new_pin!(tx, config.tx_af()),
             new_pin!(rts, AfType::input(Pull::None)),
             None, // no CTS
             None, // no DE
@@ -305,21 +305,21 @@ impl<'d> BufferedUart<'d> {
     #[cfg(not(any(usart_v1, usart_v2)))]
     pub fn new_with_de<T: Instance>(
         peri: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rx: Peri<'d, impl RxPin<T>>,
         tx: Peri<'d, impl TxPin<T>>,
         de: Peri<'d, impl DePin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(rx, AfType::input(config.rx_pull)),
-            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(rx, config.rx_af()),
+            new_pin!(tx, config.tx_af()),
             None,
             None,
-            new_pin!(de, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(de, config.de_config.af_type()),
             tx_buffer,
             rx_buffer,
             config,
@@ -346,7 +346,6 @@ impl<'d> BufferedUart<'d> {
         rx_buffer: &'d mut [u8],
         mut config: Config,
         readback: HalfDuplexReadback,
-        half_duplex: HalfDuplexConfig,
     ) -> Result<Self, ConfigError> {
         #[cfg(not(any(usart_v1, usart_v2)))]
         {
@@ -357,7 +356,7 @@ impl<'d> BufferedUart<'d> {
         Self::new_inner(
             peri,
             None,
-            new_pin!(tx, half_duplex.af_type()),
+            new_pin!(tx, config.tx_af()),
             None,
             None,
             None,
@@ -386,14 +385,13 @@ impl<'d> BufferedUart<'d> {
         rx_buffer: &'d mut [u8],
         mut config: Config,
         readback: HalfDuplexReadback,
-        half_duplex: HalfDuplexConfig,
     ) -> Result<Self, ConfigError> {
         config.swap_rx_tx = true;
         config.duplex = Duplex::Half(readback);
 
         Self::new_inner(
             peri,
-            new_pin!(rx, half_duplex.af_type()),
+            new_pin!(rx, config.rx_af()),
             None,
             None,
             None,

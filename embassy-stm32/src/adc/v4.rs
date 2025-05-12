@@ -166,7 +166,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::common_regs().ccr().modify(|w| w.set_presc(prescaler.presc()));
 
         let frequency = Hertz(T::frequency().0 / prescaler.divisor());
-        info!("ADC frequency set to {} Hz", frequency.0);
+        info!("ADC frequency set to {}", frequency);
 
         if frequency > MAX_ADC_CLK_FREQ {
             panic!("Maximal allowed frequency for the ADC is {} MHz and it varies with different packages, refer to ST docs for more information.", MAX_ADC_CLK_FREQ.0 /  1_000_000 );
@@ -305,7 +305,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         T::regs().cfgr2().modify(|reg| {
             reg.set_rovse(enable);
-            reg.set_osvr(samples);
+            reg.set_ovsr(samples);
             reg.set_ovss(right_shift);
         })
     }

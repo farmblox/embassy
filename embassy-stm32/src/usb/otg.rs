@@ -335,7 +335,7 @@ impl<'d, T: Instance> Bus<'d, T> {
 
         // Configuring Vbus sense and SOF output
         match core_id {
-            0x0000_1200 | 0x0000_1100 => self.inner.config_v1(),
+            0x0000_1200 | 0x0000_1100 | 0x0000_1000 => self.inner.config_v1(),
             0x0000_2000 | 0x0000_2100 | 0x0000_2300 | 0x0000_3000 | 0x0000_3100 => self.inner.config_v2v3(),
             0x0000_5000 => self.inner.config_v5(),
             _ => unimplemented!("Unknown USB core id {:X}", core_id),
@@ -549,7 +549,7 @@ foreach_interrupt!(
 );
 
 fn calculate_trdt<T: Instance>(speed: Dspd) -> u8 {
-    let ahb_freq = T::frequency().0;
+    let ahb_freq = T::bus_frequency().0;
     match speed {
         Dspd::HIGH_SPEED => {
             // From RM0431 (F72xx), RM0090 (F429), RM0390 (F446)
