@@ -193,7 +193,6 @@ impl<'d, T: Instance> Rng<'d, T> {
     pub fn enable(&mut self) {
         rcc::enable::<T>();
     }
-}
 
     /// Get a random u32
     pub fn next_u32(&mut self) -> u32 {
