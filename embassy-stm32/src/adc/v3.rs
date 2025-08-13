@@ -498,3 +498,21 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
     }
 }
+
+impl<'d, T: Instance> Drop for Adc<'d, T> {
+    fn drop(&mut self) {
+        let regs = T::regs();
+
+        // Disable the ADC
+        if regs.cr().read().aden() {
+            regs.cr().modify(|w| w.set_addis(true));
+            while regs.cr().read().aden() {}
+        }
+
+        // Disable the voltage regulator
+        regs.cr().modify(|w| w.set_advregen(false));
+
+        // Put the ADC into deep power-down mode
+        regs.cr().modify(|w| w.set_deeppwd(true));
+    }
+}
