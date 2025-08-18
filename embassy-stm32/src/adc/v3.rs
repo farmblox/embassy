@@ -514,5 +514,7 @@ impl<'d, T: Instance> Drop for Adc<'d, T> {
 
         // Put the ADC into deep power-down mode
         regs.cr().modify(|w| w.set_deeppwd(true));
+
+        rcc::disable::<T>();
     }
 }
