@@ -631,6 +631,25 @@ impl<'d, M: Mode> UartTx<'d, M> {
     pub fn set_baudrate(&self, baudrate: u32) -> Result<(), ConfigError> {
         set_baudrate(self.info, self.kernel_clock, baudrate)
     }
+
+    /// Re-enable the peripheral's bus clock without resetting it.
+    ///
+    /// Pairs symmetrically with [`disable`](Self::disable). Preserves USART
+    /// register state (baudrate, parity, etc.) so the peripheral resumes from
+    /// its prior configuration. Used for sleeping over `STOP1`/`STOP2` while
+    /// keeping the driver alive.
+    ///
+    /// Uses the same `_without_stop` refcount semantics as the USART driver's
+    /// internal init path, so toggling does not affect Stop-mode arbitration.
+    pub fn enable(&mut self) {
+        self.info.rcc.enable_without_reset_without_stop();
+    }
+
+    /// Clock-gate the peripheral via RCC without asserting its reset.
+    /// Register state is retained; pair with [`enable`](Self::enable) on wake.
+    pub fn disable(&mut self) {
+        self.info.rcc.disable_without_stop();
+    }
 }
 
 /// Wait until transmission complete
@@ -1161,6 +1180,25 @@ impl<'d, M: Mode> UartRx<'d, M> {
     pub fn set_baudrate(&self, baudrate: u32) -> Result<(), ConfigError> {
         set_baudrate(self.info, self.kernel_clock, baudrate)
     }
+
+    /// Re-enable the peripheral's bus clock without resetting it.
+    ///
+    /// Pairs symmetrically with [`disable`](Self::disable). Preserves USART
+    /// register state (baudrate, parity, etc.) so the peripheral resumes from
+    /// its prior configuration. Used for sleeping over `STOP1`/`STOP2` while
+    /// keeping the driver alive.
+    ///
+    /// Uses the same `_without_stop` refcount semantics as the USART driver's
+    /// internal init path, so toggling does not affect Stop-mode arbitration.
+    pub fn enable(&mut self) {
+        self.info.rcc.enable_without_reset_without_stop();
+    }
+
+    /// Clock-gate the peripheral via RCC without asserting its reset.
+    /// Register state is retained; pair with [`enable`](Self::enable) on wake.
+    pub fn disable(&mut self) {
+        self.info.rcc.disable_without_stop();
+    }
 }
 
 impl<'d, M: Mode> Drop for UartTx<'d, M> {
@@ -1630,6 +1668,19 @@ impl<'d, M: Mode> Uart<'d, M> {
         self.tx.set_baudrate(baudrate)?;
         self.rx.set_baudrate(baudrate)?;
         Ok(())
+    }
+
+    /// Re-enable the peripheral's bus clock without resetting it.  See
+    /// [`UartTx::enable`].  Tx and Rx share the same `RccInfo`, so this
+    /// delegates to a single side rather than double-bumping the refcount.
+    pub fn enable(&mut self) {
+        self.tx.enable();
+    }
+
+    /// Clock-gate the peripheral via RCC without asserting its reset.  See
+    /// [`UartTx::disable`].
+    pub fn disable(&mut self) {
+        self.tx.disable();
     }
 }
 

@@ -488,6 +488,43 @@ impl RccInfo {
         })
     }
 
+    /// Like [`enable_and_reset_with_cs`](Self::enable_and_reset_with_cs) but skips
+    /// the RST-bit assert.  Increments the peripheral refcount, then sets only
+    /// the EN bit when the refcount transitions 0 → 1.  Used by drivers that
+    /// want to clock-gate across sleeps and wake without re-initializing.
+    pub(crate) fn enable_without_reset_with_cs(&self, cs: CriticalSection) {
+        if self.refcount_idx_or_0xff != 0xff {
+            let refcount_idx = self.refcount_idx_or_0xff as usize;
+
+            if let Some(refcount) =
+                unsafe { (*core::ptr::addr_of_mut!(crate::_generated::REFCOUNTS)).get_mut(refcount_idx) }
+            {
+                *refcount += 1;
+                if *refcount > 1 {
+                    return;
+                }
+            } else {
+                panic!("refcount_idx out of bounds: {}", refcount_idx)
+            }
+        }
+
+        self.enable_with_cs(cs);
+    }
+
+    /// Counterpart to [`enable_and_reset_without_stop`](Self::enable_and_reset_without_stop):
+    /// re-enables a peripheral's bus clock without asserting reset, while using
+    /// the lenient stop-mode refcount path.  Pairs with
+    /// [`disable_without_stop`](Self::disable_without_stop).  This is the
+    /// variant USART/I2C/etc. need when they want to clock-gate the peripheral
+    /// across sleeps but not block STOP modes themselves.
+    #[allow(dead_code)]
+    pub(crate) fn enable_without_reset_without_stop(&self) {
+        critical_section::with(|cs| {
+            self.enable_without_reset_with_cs(cs);
+            self.increment_minimum_stop_refcount_with_cs(cs);
+        })
+    }
+
     // TODO: should this be `unsafe`?
     #[allow(dead_code)]
     pub(crate) fn disable_without_stop(&self) {
