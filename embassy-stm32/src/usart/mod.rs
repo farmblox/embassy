@@ -750,6 +750,38 @@ impl<'d> UartRx<'d, Async> {
         self.inner_read(buffer, true).await
     }
 
+    /// Like [`read_until_idle`](Self::read_until_idle), but additionally writes the
+    /// USART receiver-timeout register (`RTOR.RTO`) on `usart_v3`/`usart_v4` instances.
+    ///
+    /// `rto` is the count, in bit-times since the last received start bit, that
+    /// the silicon will hold before raising the `RTOF` flag.
+    ///
+    /// Note: this method writes RTOR but does NOT enable `RTOEN` in CR2 and the
+    /// internal abort future does not currently poll `sr.rtof()`. End-of-message
+    /// detection still relies on the IDLE-line interrupt (frame-level idle).
+    /// The argument is therefore presently informational; it preserves the
+    /// pre-rebase Calico fork behavior and is kept here so call sites that
+    /// depend on the API surface keep compiling. See `CALICO_PATCHES.md` for
+    /// the longer story.
+    ///
+    /// Must only be called on actual USART instances (not LPUART), since LPUART
+    /// peripherals do not have an RTOR register at the same offset.
+    #[cfg(any(usart_v3, usart_v4))]
+    pub async fn read_until_idle_with_rto(&mut self, buffer: &mut [u8], rto: u32) -> Result<usize, Error> {
+        let _scoped_wake_guard = self.info.rcc.wake_guard();
+
+        let r = self.info.regs;
+        // SAFETY: re-view the same MMIO pointer as a `Usart` (the embassy default
+        // `Regs` typedef is `Lpuart`, the common subset). RTOR lives at offset
+        // 0x14 on usart_v3/v4 USART instances; calling on an LPUART instance
+        // would write to a different register and is the caller's responsibility
+        // to avoid.
+        let r_full = unsafe { crate::pac::usart::Usart::from_ptr(r.as_ptr() as _) };
+        r_full.rtor().modify(|w| w.set_rto(rto));
+
+        self.inner_read(buffer, true).await
+    }
+
     async fn inner_read_run(
         &mut self,
         buffer: &mut [u8],
@@ -1339,6 +1371,14 @@ impl<'d> Uart<'d, Async> {
     /// Perform an an asynchronous read with idle line detection enabled
     pub async fn read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
         self.rx.read_until_idle(buffer).await
+    }
+
+    /// Like [`read_until_idle`](Self::read_until_idle), but additionally programs
+    /// the USART receiver-timeout register on `usart_v3`/`usart_v4`. See
+    /// [`UartRx::read_until_idle_with_rto`] for caveats.
+    #[cfg(any(usart_v3, usart_v4))]
+    pub async fn read_until_idle_with_rto(&mut self, buffer: &mut [u8], rto: u32) -> Result<usize, Error> {
+        self.rx.read_until_idle_with_rto(buffer, rto).await
     }
 }
 
