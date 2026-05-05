@@ -263,6 +263,12 @@ msi_pllmode = []
 low-power = [ "time", "chrono" ]
 low-power-debug-with-sleep = [ "low-power" ]
 low-power-defmt-flush = [ "defmt" ]
+## Expose a global `low_power::SHOULD_SLEEP: AtomicBool` that the firmware can
+## clear to short-circuit `sleep()` (i.e. fall back to plain WFE) without
+## entering STOP.  Useful while debugging over RTT/SWD where STOP would
+## detach the probe, and for application code paths that explicitly do not
+## want to sleep (e.g. while transmitting to the monitor).
+low-power-sleep-gate = [ "low-power" ]
 
 _executor = [ "dep:embassy-executor", "low-power" ]
 

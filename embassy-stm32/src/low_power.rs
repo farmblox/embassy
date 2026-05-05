@@ -25,7 +25,17 @@
 //! executor is the preferred way to lower power consumption if you're using `async`, instead of calling `sleep()` directly.
 
 use core::mem;
+#[cfg(feature = "low-power-sleep-gate")]
+use core::sync::atomic::AtomicBool;
 use core::sync::atomic::{Ordering, compiler_fence};
+
+/// When the `low-power-sleep-gate` Cargo feature is enabled, set this to
+/// `false` from application code to disable STOP-mode entry.  The chip will
+/// still execute `WFE` (i.e. plain idle), but will not enter STOP1/STOP2.
+/// Useful for keeping the chip awake during RTT/SWD debugging or for
+/// explicit application gates around sleep-sensitive operations.
+#[cfg(feature = "low-power-sleep-gate")]
+pub static SHOULD_SLEEP: AtomicBool = AtomicBool::new(true);
 
 use cortex_m::peripheral::SCB;
 use critical_section::CriticalSection;
@@ -347,6 +357,11 @@ fn configure_pwr(cs: CriticalSection) {
     platform::clear_flags();
 
     compiler_fence(Ordering::Acquire);
+
+    #[cfg(feature = "low-power-sleep-gate")]
+    if !SHOULD_SLEEP.load(Ordering::Relaxed) {
+        return;
+    }
 
     let Some(stop_mode) = get_stop_mode(cs) else {
         //trace!("low power: no stop mode available");
