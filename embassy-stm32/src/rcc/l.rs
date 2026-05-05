@@ -484,7 +484,7 @@ fn msirange_to_hertz(range: MSIRange) -> Hertz {
     Hertz(32_768 * (1 << (range as u8 + 1)))
 }
 
-#[cfg(any(stm32l4, stm32l5, stm32wb, stm32wl, stm32u0))]
+#[cfg(all(any(stm32l4, stm32l5, stm32wb, stm32wl, stm32u0), not(feature = "msi_pllmode")))]
 fn msirange_to_hertz(range: MSIRange) -> Hertz {
     match range {
         MSIRange::RANGE100K => Hertz(100_000),
@@ -499,6 +499,28 @@ fn msirange_to_hertz(range: MSIRange) -> Hertz {
         MSIRange::RANGE24M => Hertz(24_000_000),
         MSIRange::RANGE32M => Hertz(32_000_000),
         MSIRange::RANGE48M => Hertz(48_000_000),
+        _ => unreachable!(),
+    }
+}
+
+// MSI PLL-locked frequencies. When MSIPLLEN=1 and LSE is a 32_768 Hz crystal,
+// the MSI output is locked to the integer multiple of 32_768 nearest the nominal
+// range value, not the nominal value itself.
+#[cfg(all(any(stm32l4, stm32l5, stm32wb, stm32wl, stm32u0), feature = "msi_pllmode"))]
+fn msirange_to_hertz(range: MSIRange) -> Hertz {
+    match range {
+        MSIRange::RANGE100K => Hertz(98_304),
+        MSIRange::RANGE200K => Hertz(196_608),
+        MSIRange::RANGE400K => Hertz(393_216),
+        MSIRange::RANGE800K => Hertz(786_432),
+        MSIRange::RANGE1M => Hertz(1_016_000),
+        MSIRange::RANGE2M => Hertz(1_999_999),
+        MSIRange::RANGE4M => Hertz(3_998_000),
+        MSIRange::RANGE8M => Hertz(7_995_000),
+        MSIRange::RANGE16M => Hertz(15_991_000),
+        MSIRange::RANGE24M => Hertz(23_986_000),
+        MSIRange::RANGE32M => Hertz(32_014_000),
+        MSIRange::RANGE48M => Hertz(48_005_000),
         _ => unreachable!(),
     }
 }

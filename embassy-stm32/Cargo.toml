@@ -252,6 +252,14 @@ cyw43 = ["dep:cyw43"]
 stm32-hrtim = ["dep:stm32-hrtim"]
 
 exti = []
+## Report PLL-locked MSI frequencies (integer multiples of 32_768 Hz) from
+## `msirange_to_hertz()` instead of the nominal range values. Enable on builds
+## that configure LSE @ 32.768 kHz with `MSIPLLEN=1` (embassy auto-enables
+## MSIPLLEN when LSE is 32.768 kHz on stm32l4/l5/wb/wl). Without this, downstream
+## baud-rate / timer / I2C calculations are computed off the nominal value
+## (e.g. 16_000_000 Hz) while the silicon actually runs at the PLL-locked value
+## (e.g. 15_990_784 Hz), introducing ~560 ppm error.
+msi_pllmode = []
 low-power = [ "time", "chrono" ]
 low-power-debug-with-sleep = [ "low-power" ]
 low-power-defmt-flush = [ "defmt" ]
