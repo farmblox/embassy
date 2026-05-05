@@ -369,7 +369,16 @@ fn configure_pwr(cs: CriticalSection) {
     };
 
     if get_driver().pause_time(cs).is_err() {
+        // The next embassy-time alarm is within `min_stop_pause`, so the time
+        // driver isn't pausing the system clock for STOP.  Match what the
+        // existing warning text already says: bail out of configure_pwr so the
+        // caller's WFI does plain idle instead of STOP.  Without this return,
+        // we'd continue into `enter_stop` (setting `LPMS`/`SLEEPDEEP`) with TIM
+        // still running -- the chip enters STOP, the TIM compare event can't
+        // fire from STOP because APB is gated, and the chip never wakes from
+        // its imminent timer.  Watchdog ultimately resets it ~15s later.
         warn!("low_power: failed to pause time, not entering stop");
+        return;
     }
 
     if platform::enter_stop(cs, stop_mode).is_err() {
