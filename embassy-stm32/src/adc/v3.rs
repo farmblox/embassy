@@ -212,6 +212,23 @@ impl super::AdcRegs for crate::pac::adc::Adc {
         });
     }
 
+    // Override the trait default on adc_v3 only: stm32l4 needs ADEN cleared,
+    // ADVREGEN disabled, and DEEPPWD asserted before the MCU will enter STOP2.
+    // adc_g0/h5/h7rs/u0 keep the trait's no-op default.
+    #[cfg(adc_v3)]
+    fn full_power_down(&self) {
+        if self.cr().read().aden() {
+            self.cr().modify(|reg| {
+                reg.set_addis(true);
+            });
+            while self.cr().read().aden() {}
+        }
+        self.cr().modify(|reg| {
+            reg.set_advregen(false);
+            reg.set_deeppwd(true);
+        });
+    }
+
     /// Perform a single conversion.
     fn convert(&self) {
         // Some models are affected by an erratum:
@@ -706,33 +723,16 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
      */
 }
 
-// On `adc_v3` (stm32l4 family) the chip also needs ADVREGEN cleared and DEEPPWD
-// asserted before it will actually enter STOP2.  Other ADC families that share
-// this file (`adc_g0`, `adc_h5`, `adc_h7rs`, `adc_u0`) keep upstream's lighter
-// Drop, since their CR doesn't necessarily expose those bits.
-#[cfg(adc_v3)]
-impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Drop for Adc<'d, T> {
-    fn drop(&mut self) {
-        // Stops conversions and clears ADEN (spins until ADEN reads 0).
-        self.power_down();
-
-        // Disable the on-chip ADC voltage regulator and put the ADC into deep
-        // power-down mode.  Without these the ADC keeps drawing current and
-        // the MCU either refuses to enter STOP2 or wakes immediately.
-        T::regs().cr().modify(|reg| {
-            reg.set_advregen(false);
-            reg.set_deeppwd(true);
-        });
-
-        // Clock-gate the peripheral via RCC (matches upstream behavior).
-        <T as crate::rcc::SealedRccPeripheral>::RCC_INFO.disable_without_stop();
-    }
-}
-
-#[cfg(not(adc_v3))]
 impl<'d, T: Instance> Drop for Adc<'d, T> {
     fn drop(&mut self) {
-        super::AdcRegs::stop(&T::regs());
+        let regs = T::regs();
+        // Halt conversions, clear CONT/DMAEN.
+        super::AdcRegs::stop(&regs);
+        // Family-specific extra: on adc_v3 this clears ADEN, disables the on-chip
+        // VREG and sets DEEPPWD so the chip can actually enter STOP2.  No-op on
+        // adc_g0 / adc_h5 / adc_h7rs / adc_u0.
+        super::AdcRegs::full_power_down(&regs);
+        // Clock-gate the peripheral via RCC.
         <T as crate::rcc::SealedRccPeripheral>::RCC_INFO.disable_without_stop();
     }
 }

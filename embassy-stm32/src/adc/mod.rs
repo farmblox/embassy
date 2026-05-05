@@ -114,6 +114,12 @@ trait AdcRegs: BasicAdcRegs {
     fn configure_dma(&self, conversion_mode: ConversionMode);
     fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>);
     fn data(&self) -> *mut u16;
+
+    /// Family-specific full power-down sequence run from `Adc::drop`, in
+    /// addition to `stop()` and the RCC clock-gate.  Default is a no-op;
+    /// `adc_v3` overrides it with the ADEN-clear / ADVREGEN=0 / DEEPPWD=1
+    /// sequence required for STOP2 entry on stm32l4.
+    fn full_power_down(&self) {}
 }
 
 #[allow(private_bounds)]
