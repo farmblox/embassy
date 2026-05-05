@@ -706,6 +706,30 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
      */
 }
 
+// On `adc_v3` (stm32l4 family) the chip also needs ADVREGEN cleared and DEEPPWD
+// asserted before it will actually enter STOP2.  Other ADC families that share
+// this file (`adc_g0`, `adc_h5`, `adc_h7rs`, `adc_u0`) keep upstream's lighter
+// Drop, since their CR doesn't necessarily expose those bits.
+#[cfg(adc_v3)]
+impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Drop for Adc<'d, T> {
+    fn drop(&mut self) {
+        // Stops conversions and clears ADEN (spins until ADEN reads 0).
+        self.power_down();
+
+        // Disable the on-chip ADC voltage regulator and put the ADC into deep
+        // power-down mode.  Without these the ADC keeps drawing current and
+        // the MCU either refuses to enter STOP2 or wakes immediately.
+        T::regs().cr().modify(|reg| {
+            reg.set_advregen(false);
+            reg.set_deeppwd(true);
+        });
+
+        // Clock-gate the peripheral via RCC (matches upstream behavior).
+        <T as crate::rcc::SealedRccPeripheral>::RCC_INFO.disable_without_stop();
+    }
+}
+
+#[cfg(not(adc_v3))]
 impl<'d, T: Instance> Drop for Adc<'d, T> {
     fn drop(&mut self) {
         super::AdcRegs::stop(&T::regs());
