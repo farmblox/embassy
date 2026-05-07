@@ -41,7 +41,14 @@ pub(super) fn configure_exti_pin(pin: PinNumber, port: PinNumber, trigger_edge: 
         EXTI.rtsr(0).modify(|w| w.set_line(pin_num, rising));
         EXTI.ftsr(0).modify(|w| w.set_line(pin_num, falling));
 
-        clear_exti_pending(pin);
+        // Calico patch: do NOT clear pending here. The async ExtiInputFuture
+        // calls this from `configure_and_enable_exti` on every `wait_for_high`/
+        // `wait_for_rising_edge`. If a rising edge happened while IMR was 0
+        // (e.g. between loop iterations, before the next wait_for_high re-armed
+        // the line), `EXTI.PR` has the captured edge latched. Clearing it here
+        // wipes that edge and the chip then enters STOP and never wakes from
+        // that press. Callers that need a clean slate (e.g. blocking
+        // `set_edge_detection`) call `clear_pending()` explicitly.
     });
 }
 

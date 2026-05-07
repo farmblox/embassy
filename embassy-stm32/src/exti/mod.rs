@@ -288,6 +288,10 @@ impl<'d> ExtiInput<'d, Blocking> {
         let pin_num = self.pin.pin.pin.pin();
         let port_num = self.pin.pin.pin.port();
         low_level::configure_exti_pin(pin_num, port_num, trigger_edge);
+        // Calico patch: configure_exti_pin no longer clears pending (so the async
+        // path can preserve a captured edge from an IMR=0 window). The blocking
+        // API doc above promises a clear on edge change, so do it explicitly.
+        self.clear_pending();
     }
 
     /// Enables the EXTI interrupt for this pin
