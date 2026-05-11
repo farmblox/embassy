@@ -642,13 +642,16 @@ impl<'d, M: Mode> UartTx<'d, M> {
     /// Uses the same `_without_stop` refcount semantics as the USART driver's
     /// internal init path, so toggling does not affect Stop-mode arbitration.
     pub fn enable(&mut self) {
-        self.info.rcc.enable_without_reset_without_stop();
+        // Calico: re-enable bus clock without asserting RST so register state
+        // (baudrate, parity, etc.) survives sleep cycles.  Result is discarded —
+        // a non-zero prior refcount just means another holder already enabled it.
+        let _ = self.info.rcc.enable_without_reset();
     }
 
     /// Clock-gate the peripheral via RCC without asserting its reset.
     /// Register state is retained; pair with [`enable`](Self::enable) on wake.
     pub fn disable(&mut self) {
-        self.info.rcc.disable_without_stop();
+        self.info.rcc.disable();
     }
 }
 
@@ -1191,13 +1194,16 @@ impl<'d, M: Mode> UartRx<'d, M> {
     /// Uses the same `_without_stop` refcount semantics as the USART driver's
     /// internal init path, so toggling does not affect Stop-mode arbitration.
     pub fn enable(&mut self) {
-        self.info.rcc.enable_without_reset_without_stop();
+        // Calico: re-enable bus clock without asserting RST so register state
+        // (baudrate, parity, etc.) survives sleep cycles.  Result is discarded —
+        // a non-zero prior refcount just means another holder already enabled it.
+        let _ = self.info.rcc.enable_without_reset();
     }
 
     /// Clock-gate the peripheral via RCC without asserting its reset.
     /// Register state is retained; pair with [`enable`](Self::enable) on wake.
     pub fn disable(&mut self) {
-        self.info.rcc.disable_without_stop();
+        self.info.rcc.disable();
     }
 }
 

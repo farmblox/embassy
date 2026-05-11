@@ -457,6 +457,35 @@ impl RccInfo {
         });
     }
 
+    /// Calico-carried: re-enable the peripheral's bus clock without asserting
+    /// reset.  Increments the refcount, then sets only the EN bit when the
+    /// refcount transitions 0 → 1.  Used by drivers that want to clock-gate
+    /// across sleeps and wake without re-initializing.  The minimum_stop
+    /// refcount is incremented so this still participates in Stop-mode
+    /// arbitration.  Returns `Err(())` if the refcount was already non-zero
+    /// (matching the new wakeguard `enable_and_reset_with_cs` contract).
+    #[allow(dead_code)]
+    pub(crate) fn enable_without_reset(&self) -> Result<(), ()> {
+        critical_section::with(|cs| {
+            if self.refcount_idx_or_0xff != 0xff {
+                let refcount_idx = self.refcount_idx_or_0xff as usize;
+                if let Some(refcount) = unsafe {
+                    (*core::ptr::addr_of_mut!(crate::_generated::REFCOUNTS)).get_mut(refcount_idx)
+                } {
+                    *refcount += 1;
+                    if *refcount > 1 {
+                        return Err(());
+                    }
+                } else {
+                    panic!("refcount_idx out of bounds: {}", refcount_idx)
+                }
+            }
+            self.enable_with_cs(cs);
+            self.increment_minimum_stop_refcount_with_cs(cs);
+            Ok(())
+        })
+    }
+
     // TODO: should this be `unsafe`?
     pub(crate) fn disable(&self) {
         let _: Result<(), ()> = critical_section::with(|cs| {
