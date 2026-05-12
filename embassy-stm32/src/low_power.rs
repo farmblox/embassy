@@ -364,6 +364,8 @@ fn configure_pwr(cs: CriticalSection) {
         return;
     };
 
+    info!("Entering stop mode: {}", stop_mode);
+
     if get_driver().pause_time(cs).is_err() {
         // The next embassy-time alarm is within `min_stop_pause`, so the time
         // driver isn't pausing the system clock for STOP.  Falling through
@@ -402,10 +404,24 @@ fn configure_pwr(cs: CriticalSection) {
 /// sleep as needed, but you might have to do it manually if you're using some peripherals
 /// with the PAC directly.
 pub unsafe fn sleep(cs: CriticalSection) {
+    // CALICO DIAGNOSTIC: breadcrumb tags written to RTC backup registers
+    // (survive IWDG reset) so log_reset_cause can identify where the chip
+    // wedged. BKP0R holds the last stage tag; BKP1R holds the total
+    // completed-cycle counter. See pnp-firmware/src/main.rs::log_reset_cause.
+    #[cfg(stm32l4)]
+    calico_breadcrumb(0xA1A1A1A1); // entered sleep()
+
     configure_pwr(cs);
 
     #[cfg(feature = "low-power-defmt-flush")]
     defmt::flush();
+
+    #[cfg(stm32l4)]
+    calico_breadcrumb(if STOP_ENTERED.load(Ordering::Acquire) {
+        0xB2B2B2B2 // pre-WFI, entering Stop
+    } else {
+        0xB0B0B0B0 // pre-WFI, plain WFI (pause_time or enter_stop failed)
+    });
 
     cortex_m::asm::dsb();
     cortex_m::asm::wfi();
@@ -413,5 +429,28 @@ pub unsafe fn sleep(cs: CriticalSection) {
     cortex_m::asm::isb();
     cortex_m::asm::dsb();
 
+    #[cfg(stm32l4)]
+    calico_breadcrumb(0xC1C1C1C1); // WFI returned
+
     on_wakeup(cs);
+
+    #[cfg(stm32l4)]
+    {
+        calico_breadcrumb(0xD1D1D1D1); // on_wakeup returned, cycle complete
+        calico_increment_cycle_counter();
+    }
+}
+
+#[cfg(stm32l4)]
+fn calico_breadcrumb(stage: u32) {
+    // Backup register 0: last stage reached in low_power::sleep().
+    // Decoded by pnp-firmware on next boot to identify wedge location.
+    crate::pac::RTC.bkpr(0).write(|w| w.set_bkp(stage));
+}
+
+#[cfg(stm32l4)]
+fn calico_increment_cycle_counter() {
+    // Backup register 1: total completed sleep cycles since cold boot.
+    let count = crate::pac::RTC.bkpr(1).read().bkp().wrapping_add(1);
+    crate::pac::RTC.bkpr(1).write(|w| w.set_bkp(count));
 }

@@ -303,9 +303,15 @@ impl super::LPTimeDriver for RtcDriver {
 
         let time_until_next_alarm = self.time_until_next_alarm(cs);
         if time_until_next_alarm < self.min_stop_pause.borrow(cs).get() {
-            trace!(
-                "time_until_next_alarm < self.min_stop_pause ({})",
-                time_until_next_alarm
+            // CALICO DIAG: temporary info-level trace to distinguish a phantom
+            // (stuck) alarm slot from a genuinely-near-term waker during the
+            // pre-wedge pause_time failure burst. Remove once the wedge mechanism
+            // is identified.
+            info!(
+                "pause_time fail: dt={} now={} alarm_ts={}",
+                time_until_next_alarm,
+                self.now(),
+                self.alarm.borrow(cs).timestamp.get(),
             );
             Err(())
         } else {
